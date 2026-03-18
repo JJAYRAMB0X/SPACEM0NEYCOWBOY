@@ -3262,10 +3262,14 @@ SOL,100</pre></div>
             if (token.assetType === 'cash') continue;
             // Stocks go to phase 3
             if (token.assetType === 'stock') { stockTokens.push(token); continue; }
-            // Manual-price tokens go straight to failed list for manual entry
-            if (token.isCustom && token.manualPrice) { finalFailed.push({ sym: token.symbol, reason: 'Manual price entry — no auto source' }); continue; }
+            // Truly manual tokens — no contract address, no CoinGecko ID, no auto source at all
+            const hasAutoSource = isRealAddress(token.address) || token.coinGeckoId || KNOWN_COINS[token.symbol.toUpperCase()];
+            if (token.isCustom && token.manualPrice && !hasAutoSource) {
+                finalFailed.push({ sym: token.symbol, reason: 'Manual price entry — no auto source' });
+                continue;
+            }
             // Custom tokens with coinGeckoId skip DexScreener — go straight to phase 2
-            if (token.isCustom && token.coinGeckoId) { dexFailed.push(token); continue; }
+            if (token.isCustom && (token.coinGeckoId || KNOWN_COINS[token.symbol.toUpperCase()])) { dexFailed.push(token); continue; }
 
             try {
                 let data = null;
@@ -3302,7 +3306,7 @@ SOL,100</pre></div>
                     console.log('[PriceUpdate] ' + token.symbol + ' | DexScreener failed, queuing for CoinGecko fallback');
                     dexFailed.push(token);
                 }
-                await delay(150);
+                await delay(250);
             } catch (e) {
                 console.error('DexScreener failed for ' + token.symbol, e);
                 dexFailed.push(token);
@@ -3312,6 +3316,7 @@ SOL,100</pre></div>
         // === PHASE 2: CoinGecko fallback for failed tokens ===
         if (dexFailed.length > 0) {
             btn.innerHTML = '<div class="spinner"></div> CoinGecko fallback (' + dexFailed.length + ')...';
+            const geckoRetryQueue = []; // tokens that fail CoinGecko on first pass
             let geckoIdx = 0;
 
             for (const token of dexFailed) {
@@ -3321,40 +3326,58 @@ SOL,100</pre></div>
                 console.log('[PriceUpdate] ' + token.symbol + ' | CoinGecko fallback | geckoId=' + geckoId + ' | addr=' + (token.address || 'none'));
 
                 if (geckoId) {
-                    let success = false;
-                    for (let attempt = 0; attempt < 2; attempt++) {
-                        try {
-                            const d = await fetchCoinGeckoById(geckoId);
-                            token.price = d.price; token.marketCap = d.marketCap; token.priceChange24h = d.priceChange24h;
-                            token.value = token.amount * token.price;
-                            if (d.logo && !token.logo) token.logo = d.logo;
-                            if (!token.coinGeckoId) { token.coinGeckoId = geckoId; token.isCustom = true; }
-                            // Backfill real contract address for tokens with fake custom- addresses
-                            if (d.contractAddress && token.address && token.address.startsWith('custom-')) {
-                                token.address = d.contractAddress;
-                                token.chainId = d.contractChain || token.chainId;
-                            }
-                            geckoUpdated++;
-                            success = true;
-                            await delay(2000); // 2s between CoinGecko requests
-                            break;
-                        } catch (e) {
-                            const isRateLimit = (e.message || '').includes('Rate limited') || (e.message || '').includes('429');
-                            if (isRateLimit && attempt === 0) {
-                                // Rate limited — wait 10s and retry once
-                                btn.innerHTML = '<div class="spinner"></div> Rate limited, waiting 10s...';
-                                await delay(10000);
-                            } else {
-                                let reason = e.message || 'unknown error';
-                                if (isRateLimit) reason = 'rate limited (retry failed)';
-                                else if (reason.includes('Failed to fetch') || reason.includes('NetworkError')) reason = 'network error';
-                                finalFailed.push({ sym: token.symbol, reason });
-                                break;
-                            }
+                    try {
+                        const d = await fetchCoinGeckoById(geckoId);
+                        token.price = d.price; token.marketCap = d.marketCap; token.priceChange24h = d.priceChange24h;
+                        token.value = token.amount * token.price;
+                        if (d.logo && !token.logo) token.logo = d.logo;
+                        if (!token.coinGeckoId) { token.coinGeckoId = geckoId; token.isCustom = true; }
+                        if (d.contractAddress && token.address && token.address.startsWith('custom-')) {
+                            token.address = d.contractAddress;
+                            token.chainId = d.contractChain || token.chainId;
                         }
+                        geckoUpdated++;
+                        await delay(2500);
+                    } catch (e) {
+                        console.warn('[PriceUpdate] ' + token.symbol + ' | CoinGecko first attempt failed: ' + e.message + ' — queuing for retry');
+                        geckoRetryQueue.push({ token, geckoId });
+                        await delay(2500);
                     }
                 } else {
-                    finalFailed.push({ sym: token.symbol, reason: 'not on DEX or CoinGecko' });
+                    finalFailed.push({ sym: token.symbol, reason: 'Not on DEX or CoinGecko — no auto source' });
+                }
+            }
+
+            // === PHASE 2b: Auto-retry failed CoinGecko tokens (with longer delays) ===
+            if (geckoRetryQueue.length > 0) {
+                console.log('[PriceUpdate] Phase 2b: auto-retrying ' + geckoRetryQueue.length + ' failed CoinGecko tokens after 8s cooldown...');
+                btn.innerHTML = '<div class="spinner"></div> Retrying ' + geckoRetryQueue.length + ' failed...';
+                await delay(8000);
+                let retryIdx = 0;
+                for (const { token, geckoId } of geckoRetryQueue) {
+                    retryIdx++;
+                    btn.innerHTML = '<div class="spinner"></div> Retry ' + retryIdx + '/' + geckoRetryQueue.length + '...';
+                    try {
+                        const d = await fetchCoinGeckoById(geckoId);
+                        token.price = d.price; token.marketCap = d.marketCap; token.priceChange24h = d.priceChange24h;
+                        token.value = token.amount * token.price;
+                        if (d.logo && !token.logo) token.logo = d.logo;
+                        if (!token.coinGeckoId) { token.coinGeckoId = geckoId; token.isCustom = true; }
+                        if (d.contractAddress && token.address && token.address.startsWith('custom-')) {
+                            token.address = d.contractAddress;
+                            token.chainId = d.contractChain || token.chainId;
+                        }
+                        geckoUpdated++;
+                        console.log('[PriceUpdate] ' + token.symbol + ' | CoinGecko RETRY SUCCESS');
+                        await delay(3000);
+                    } catch (e) {
+                        const isRateLimit = (e.message || '').includes('Rate limited') || (e.message || '').includes('429');
+                        let reason = isRateLimit ? 'Rate limited — click 🔄 to retry' : (e.message || 'unknown error');
+                        if (reason.includes('Failed to fetch') || reason.includes('NetworkError')) reason = 'Network error — click 🔄 to retry';
+                        console.warn('[PriceUpdate] ' + token.symbol + ' | CoinGecko RETRY FAILED: ' + reason);
+                        finalFailed.push({ sym: token.symbol, reason });
+                        await delay(3000);
+                    }
                 }
             }
         }
