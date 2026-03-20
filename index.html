@@ -766,6 +766,14 @@
         }
         .ss-wp-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
         .ss-wp-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
+        .ss-nft-toggle-btn {
+            position: absolute; left: 12px; top: 100px; z-index: 60;
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px; padding: 6px 12px; color: rgba(255,255,255,0.5);
+            font-size: 0.75rem; cursor: pointer; transition: all 0.3s;
+        }
+        .ss-nft-toggle-btn:hover { background: rgba(0,212,255,0.15); color: rgba(255,255,255,0.8); }
+        .ss-nft-toggle-btn.active { background: rgba(0,212,255,0.2); border-color: rgba(0,212,255,0.4); color: rgba(0,212,255,0.9); }
 
         /* ===== INFO BUTTON (reopen welcome) ===== */
         .subtitle-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 8px; }
@@ -1483,6 +1491,7 @@ SOL,100</pre></div>
             <div id="ssPortfolioValue" style="position:absolute;bottom:48px;left:50%;transform:translateX(-50%);font-size:1.4rem;font-weight:700;color:rgba(255,255,255,0.12);letter-spacing:1px;pointer-events:none;white-space:nowrap"></div>
             <div class="ss-watermark">Space Money Cowboy</div>
             <button class="ss-wp-btn" id="ssWinterPlanetBtn" onclick="event.stopPropagation(); toggleWinterPlanet()">❄️ Winter Planet</button>
+            <button class="ss-nft-toggle-btn" id="ssNftToggleBtn" onclick="event.stopPropagation(); toggleSSNftPanel()">🖼️ NFT Panel</button>
         </div>
         <div class="ss-esc-hint" id="ssEscHint">Press ESC to exit</div>
     </div>
@@ -5153,18 +5162,48 @@ SOL,100</pre></div>
         document.getElementById('ssModeWindowed').classList.toggle('active', mode === 'windowed');
     }
 
+    function toggleSSNftPanel() {
+        const current = localStorage.getItem('ssShowNftPanel') !== 'false';
+        const show = !current;
+        localStorage.setItem('ssShowNftPanel', show);
+        const ssNftPanel = document.getElementById('ssNftPanel');
+        const ssMainEl = document.getElementById('ssMain');
+        const nftBtn = document.getElementById('ssNftToggleBtn');
+        if (show && nftGallery.length > 0) {
+            ssNftPanel.style.display = '';
+            ssMainEl.style.width = '75%';
+            nftBtn.classList.add('active');
+            setupScreensaverNFT();
+        } else {
+            ssNftPanel.style.display = 'none';
+            ssMainEl.style.width = '100%';
+            nftBtn.classList.remove('active');
+        }
+        // Resize visualizations to fit new width
+        if (typeof renderNetwork === 'function') renderNetwork();
+        if (typeof drawBgChart === 'function') drawBgChart();
+    }
+
     function enterScreensaver() {
         if (screensaverActive) return;
         screensaverActive = true;
         // Hide NFT panel if no NFTs — planets get 100% width
         const ssNftPanel = document.getElementById('ssNftPanel');
         const ssMainEl = document.getElementById('ssMain');
-        if (nftGallery.length === 0) {
+        const ssNftPref = localStorage.getItem('ssShowNftPanel') !== 'false';
+        if (nftGallery.length === 0 || !ssNftPref) {
             ssNftPanel.style.display = 'none';
             ssMainEl.style.width = '100%';
         } else {
             ssNftPanel.style.display = '';
             ssMainEl.style.width = '75%';
+        }
+        const nftBtn = document.getElementById('ssNftToggleBtn');
+        if (nftGallery.length === 0) {
+            nftBtn.style.display = 'none';
+        } else {
+            nftBtn.style.display = '';
+            nftBtn.classList.toggle('active', ssNftPref);
         }
         if (screensaverMode === 'full') document.documentElement.requestFullscreen().catch(() => {});
         document.getElementById('screensaver').classList.add('active');
