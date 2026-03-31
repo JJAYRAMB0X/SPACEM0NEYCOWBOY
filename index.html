@@ -774,7 +774,7 @@
             display: none;
         }
         .ss-nft-toggle-btn:hover { background: rgba(0,212,255,0.15); color: rgba(255,255,255,0.8); }
-        .ss-nft-toggle-btn.active { background: rgba(0,212,255,0.2); border-color: rgba(0,212,255,0.4); color: rgba(0,212,255,0.9); }
+        .screensaver.ss-nft-only .ss-nft-img { padding: 50px; }
 
         /* ===== INFO BUTTON (reopen welcome) ===== */
         .subtitle-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 8px; }
@@ -1493,7 +1493,7 @@ SOL,100</pre></div>
             <div class="ss-watermark">Space Money Cowboy</div>
             <button class="ss-wp-btn" id="ssWinterPlanetBtn" onclick="event.stopPropagation(); toggleWinterPlanet()">❄️ Winter Planet</button>
         </div>
-        <button class="ss-nft-toggle-btn" id="ssNftToggleBtn" onclick="event.stopPropagation(); toggleSSNftPanel()">🖼️ NFT Panel</button>
+        <button class="ss-nft-toggle-btn" id="ssNftToggleBtn" onclick="event.stopPropagation(); cycleSsNftState()">🖼️ NFT Panel</button>
         <div class="ss-esc-hint" id="ssEscHint">Press ESC to exit</div>
     </div>
 
@@ -1561,6 +1561,8 @@ SOL,100</pre></div>
     let screensaverNftTimer = null;
     let ssNftActiveImg = 1;
     let ssEscHintTimer = null;
+    let ssNftPanelState = parseInt(localStorage.getItem(lsKey('ssNftPanelState'))) || 0;
+    if (ssNftPanelState < 0 || ssNftPanelState > 2) ssNftPanelState = 0;
     let winterPlanetActive = false;
     let winterPlanetEl = null;
     let wpLensScene = null;
@@ -5163,49 +5165,75 @@ SOL,100</pre></div>
         document.getElementById('ssModeWindowed').classList.toggle('active', mode === 'windowed');
     }
 
-    function toggleSSNftPanel() {
-        const current = localStorage.getItem('ssShowNftPanel') !== 'false';
-        const show = !current;
-        localStorage.setItem('ssShowNftPanel', show);
-        const ssNftPanel = document.getElementById('ssNftPanel');
-        const ssMainEl = document.getElementById('ssMain');
+    function cycleSsNftState() {
+        ssNftPanelState = (ssNftPanelState + 1) % 3;
+        localStorage.setItem(lsKey('ssNftPanelState'), ssNftPanelState);
+        applySsNftState();
+    }
+
+    function applySsNftState() {
+        const panel = document.getElementById('ssNftPanel');
+        const main = document.getElementById('ssMain');
+        const wpBtn = document.getElementById('ssWinterPlanetBtn');
+        const ssEl = document.getElementById('screensaver');
         const nftBtn = document.getElementById('ssNftToggleBtn');
-        if (show && nftGallery.length > 0) {
-            ssNftPanel.style.display = '';
-            ssMainEl.style.width = '75%';
-            nftBtn.classList.add('active');
-            setupScreensaverNFT();
+
+        // Reset styles
+        panel.style.display = '';
+        panel.style.width = '';
+        panel.style.borderRight = '';
+        main.style.display = '';
+        main.style.width = '';
+        wpBtn.style.display = '';
+        ssEl.classList.remove('ss-nft-only');
+
+        if (ssNftPanelState === 0) {
+            // Split view — hide panel if no NFTs
+            if (nftGallery.length === 0) {
+                panel.style.display = 'none';
+                main.style.width = '100%';
+            } else {
+                main.style.width = '75%';
+            }
+        } else if (ssNftPanelState === 1) {
+            // Portfolio only
+            panel.style.display = 'none';
+            main.style.width = '100%';
         } else {
-            ssNftPanel.style.display = 'none';
-            ssMainEl.style.width = '100%';
-            nftBtn.classList.remove('active');
+            // NFT only
+            panel.style.width = '100%';
+            panel.style.borderRight = 'none';
+            main.style.display = 'none';
+            wpBtn.style.display = 'none';
+            ssEl.classList.add('ss-nft-only');
+            if (winterPlanetActive) stopWinterPlanet();
         }
-        // Resize visualizations to fit new screensaver width
-        renderScreensaverPlanets();
-        drawBgChart(document.getElementById('ssBgChart'), document.getElementById('ssMain'));
+
+        // Show button only when NFTs exist
+        if (nftGallery.length > 0) {
+            nftBtn.style.display = 'block';
+        } else {
+            nftBtn.style.display = 'none';
+        }
+
+        // Re-render portfolio visuals when visible
+        if (ssNftPanelState !== 2 && screensaverActive) {
+            requestAnimationFrame(() => {
+                renderScreensaverPlanets();
+                drawBgChart(document.getElementById('ssBgChart'), document.getElementById('ssMain'));
+            });
+        }
+
+        // Re-setup NFT slideshow when panel becomes visible
+        if (ssNftPanelState !== 1 && screensaverActive && nftGallery.length > 0) {
+            setupScreensaverNFT();
+        }
     }
 
     function enterScreensaver() {
         if (screensaverActive) return;
         screensaverActive = true;
-        // Hide NFT panel if no NFTs — planets get 100% width
-        const ssNftPanel = document.getElementById('ssNftPanel');
-        const ssMainEl = document.getElementById('ssMain');
-        const ssNftPref = localStorage.getItem('ssShowNftPanel') !== 'false';
-        if (nftGallery.length === 0 || !ssNftPref) {
-            ssNftPanel.style.display = 'none';
-            ssMainEl.style.width = '100%';
-        } else {
-            ssNftPanel.style.display = '';
-            ssMainEl.style.width = '75%';
-        }
-        const nftBtn = document.getElementById('ssNftToggleBtn');
-        if (nftGallery.length === 0) {
-            nftBtn.style.display = 'none';
-        } else {
-            nftBtn.style.display = 'block';
-            nftBtn.classList.toggle('active', ssNftPref);
-        }
+        applySsNftState();
         if (screensaverMode === 'full') document.documentElement.requestFullscreen().catch(() => {});
         document.getElementById('screensaver').classList.add('active');
         setupScreensaverNFT();
@@ -5232,8 +5260,14 @@ SOL,100</pre></div>
         document.getElementById('screensaver').removeEventListener('click', showSSEscHint);
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         document.getElementById('ssNetworkContainer').innerHTML = '';
-        document.getElementById('ssNftPanel').style.display = '';
-        document.getElementById('ssMain').style.width = '';
+        const ssPanel = document.getElementById('ssNftPanel');
+        ssPanel.style.display = '';
+        ssPanel.style.width = '';
+        ssPanel.style.borderRight = '';
+        const ssMainReset = document.getElementById('ssMain');
+        ssMainReset.style.display = '';
+        ssMainReset.style.width = '';
+        document.getElementById('screensaver').classList.remove('ss-nft-only');
         document.getElementById('ssNftToggleBtn').style.display = 'none';
         document.getElementById('ssGlobalStats').style.display = '';
         const ssVal = document.getElementById('ssPortfolioValue');
