@@ -767,6 +767,7 @@
         .ss-wp-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
         .ss-wp-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
         .ss-nft-toggle-btn {
+<<<<<<< HEAD
             position: absolute; right: 12px; top: 12px; z-index: 100002;
             background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15);
             border-radius: 8px; padding: 6px 12px; color: rgba(255,255,255,0.5);
@@ -774,6 +775,16 @@
         }
         .ss-nft-toggle-btn:hover { background: rgba(0,212,255,0.15); color: rgba(255,255,255,0.8); }
         .screensaver.ss-nft-only .ss-nft-img { padding: 50px; }
+=======
+            position: fixed; left: 12px; bottom: 60px; z-index: 100001;
+            background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px; padding: 6px 12px; color: rgba(255,255,255,0.6);
+            font-size: 0.75rem; cursor: pointer; transition: all 0.3s;
+            display: none;
+        }
+        .ss-nft-toggle-btn:hover { background: rgba(0,212,255,0.15); color: rgba(255,255,255,0.8); }
+        .ss-nft-toggle-btn.active { background: rgba(0,212,255,0.2); border-color: rgba(0,212,255,0.4); color: rgba(0,212,255,0.9); }
+>>>>>>> a5b27794c53dfadf15bcbd7a072568123170c5d1
 
         /* ===== INFO BUTTON (reopen welcome) ===== */
         .subtitle-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 8px; }
@@ -1492,7 +1503,11 @@ SOL,100</pre></div>
             <div class="ss-watermark">Space Money Cowboy</div>
             <button class="ss-wp-btn" id="ssWinterPlanetBtn" onclick="event.stopPropagation(); toggleWinterPlanet()">❄️ Winter Planet</button>
         </div>
+<<<<<<< HEAD
         <button class="ss-nft-toggle-btn" id="ssNftToggleBtn" onclick="event.stopPropagation(); cycleSsNftState()">🖼️ NFT Panel</button>
+=======
+        <button class="ss-nft-toggle-btn" id="ssNftToggleBtn" onclick="event.stopPropagation(); toggleSSNftPanel()">🖼️ NFT Panel</button>
+>>>>>>> a5b27794c53dfadf15bcbd7a072568123170c5d1
         <div class="ss-esc-hint" id="ssEscHint">Press ESC to exit</div>
     </div>
 
@@ -5164,10 +5179,53 @@ SOL,100</pre></div>
         document.getElementById('ssModeWindowed').classList.toggle('active', mode === 'windowed');
     }
 
+    function toggleSSNftPanel() {
+        const current = localStorage.getItem('ssShowNftPanel') !== 'false';
+        const show = !current;
+        localStorage.setItem('ssShowNftPanel', show);
+        const ssNftPanel = document.getElementById('ssNftPanel');
+        const ssMainEl = document.getElementById('ssMain');
+        const nftBtn = document.getElementById('ssNftToggleBtn');
+        if (show && nftGallery.length > 0) {
+            ssNftPanel.style.display = '';
+            ssMainEl.style.width = '75%';
+            nftBtn.classList.add('active');
+            setupScreensaverNFT();
+        } else {
+            ssNftPanel.style.display = 'none';
+            ssMainEl.style.width = '100%';
+            nftBtn.classList.remove('active');
+        }
+        // Resize visualizations to fit new screensaver width
+        renderScreensaverPlanets();
+        drawBgChart(document.getElementById('ssBgChart'), document.getElementById('ssMain'));
+    }
+
     function enterScreensaver() {
         if (screensaverActive) return;
         screensaverActive = true;
+<<<<<<< HEAD
         applySsNftState();
+=======
+        // Hide NFT panel if no NFTs — planets get 100% width
+        const ssNftPanel = document.getElementById('ssNftPanel');
+        const ssMainEl = document.getElementById('ssMain');
+        const ssNftPref = localStorage.getItem('ssShowNftPanel') !== 'false';
+        if (nftGallery.length === 0 || !ssNftPref) {
+            ssNftPanel.style.display = 'none';
+            ssMainEl.style.width = '100%';
+        } else {
+            ssNftPanel.style.display = '';
+            ssMainEl.style.width = '75%';
+        }
+        const nftBtn = document.getElementById('ssNftToggleBtn');
+        if (nftGallery.length === 0) {
+            nftBtn.style.display = 'none';
+        } else {
+            nftBtn.style.display = 'block';
+            nftBtn.classList.toggle('active', ssNftPref);
+        }
+>>>>>>> a5b27794c53dfadf15bcbd7a072568123170c5d1
         if (screensaverMode === 'full') document.documentElement.requestFullscreen().catch(() => {});
         document.getElementById('screensaver').classList.add('active');
         setupScreensaverNFT();
@@ -5194,6 +5252,7 @@ SOL,100</pre></div>
         document.getElementById('screensaver').removeEventListener('click', showSSEscHint);
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         document.getElementById('ssNetworkContainer').innerHTML = '';
+<<<<<<< HEAD
         const ssPanel = document.getElementById('ssNftPanel');
         ssPanel.style.display = '';
         ssPanel.style.width = '';
@@ -5202,6 +5261,11 @@ SOL,100</pre></div>
         ssMainReset.style.display = '';
         ssMainReset.style.width = '';
         document.getElementById('screensaver').classList.remove('ss-nft-only');
+=======
+        document.getElementById('ssNftPanel').style.display = '';
+        document.getElementById('ssMain').style.width = '';
+        document.getElementById('ssNftToggleBtn').style.display = 'none';
+>>>>>>> a5b27794c53dfadf15bcbd7a072568123170c5d1
         document.getElementById('ssGlobalStats').style.display = '';
         const ssVal = document.getElementById('ssPortfolioValue');
         if (ssVal) ssVal.style.display = '';
