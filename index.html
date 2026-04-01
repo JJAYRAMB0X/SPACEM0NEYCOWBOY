@@ -423,16 +423,16 @@
         .nft-btn.danger { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #ef4444; font-size: 0.8rem; }
         .nft-counter { color: #666; font-size: 0.85rem; margin-top: 6px; }
         .nft-img-wrap { position: relative; display: inline-block; width: 100%; }
-        .nft-value-overlay { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; font-style: italic; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 2px 10px; border-radius: 8px; cursor: pointer; transition: background 0.2s; white-space: nowrap; z-index: 5; }
-        .nft-value-overlay:hover { background: rgba(0,0,0,0.7); }
-        .nft-value-overlay.empty { display: none; }
-        .ss-nft-value-overlay { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); font-size: 0.85rem; font-style: italic; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 4px 14px; border-radius: 10px; cursor: pointer; transition: all 0.3s; white-space: nowrap; z-index: 10; opacity: 0; pointer-events: none; }
+        .nft-value-overlay { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; font-style: italic; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 2px 10px; border-radius: 8px; cursor: pointer; transition: background 0.2s, color 0.2s; white-space: nowrap; z-index: 5; }
+        .nft-value-overlay:hover { background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.8); }
+        .nft-value-overlay.has-value { color: rgba(255,255,255,0.7); }
+        .ss-nft-value-overlay { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); font-size: 0.85rem; font-style: italic; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 4px 14px; border-radius: 10px; cursor: pointer; transition: all 0.3s; white-space: nowrap; z-index: 10; opacity: 0; pointer-events: none; }
         .ss-nft-panel:hover .ss-nft-value-overlay, .screensaver.ss-nft-only .ss-nft-value-overlay { opacity: 1; pointer-events: auto; }
-        .ss-nft-value-overlay:hover { background: rgba(0,0,0,0.7); }
-        .ss-nft-value-overlay.empty { display: none; }
-        .nft-fs-value-overlay { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 0.9rem; font-style: italic; color: rgba(255,255,255,0.7); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 4px 14px; border-radius: 10px; cursor: pointer; transition: background 0.2s; white-space: nowrap; z-index: 10; }
-        .nft-fs-value-overlay:hover { background: rgba(0,0,0,0.7); }
-        .nft-fs-value-overlay.empty { display: none; }
+        .ss-nft-value-overlay:hover { background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.8); }
+        .ss-nft-value-overlay.has-value { color: rgba(255,255,255,0.7); }
+        .nft-fs-value-overlay { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 0.9rem; font-style: italic; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 4px 14px; border-radius: 10px; cursor: pointer; transition: background 0.2s, color 0.2s; white-space: nowrap; z-index: 10; }
+        .nft-fs-value-overlay:hover { background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.8); }
+        .nft-fs-value-overlay.has-value { color: rgba(255,255,255,0.7); }
 
         /* ===== AI SEARCH ===== */
         .search-results { max-height: 350px; overflow-y: auto; margin-top: 10px; }
@@ -1007,7 +1007,7 @@
                     <div id="nftViewer" class="nft-viewer" style="display:none">
                         <div class="nft-img-wrap">
                             <img id="nftImg" class="nft-img" src="" alt="NFT">
-                            <div class="nft-value-overlay empty" id="nftValueOverlay" onclick="startEditIndividualNftValue(nftIdx, 'nftValueOverlay')" title="Click to set this NFT's value"></div>
+                            <div class="nft-value-overlay" id="nftValueOverlay" onclick="startEditIndividualNftValue(nftIdx, 'nftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
                         </div>
                         <div class="nft-controls">
                             <button class="nft-btn" onclick="openNFTReorder()" title="Reorder">⊞</button>
@@ -1492,7 +1492,7 @@ SOL,100</pre></div>
             <button class="nft-fs-arrow nft-fs-prev" onclick="prevNFTOverlay()">&#8249;</button>
             <img id="overlayNFTImg" src="" alt="NFT" class="nft-fs-img">
             <button class="nft-fs-arrow nft-fs-next" onclick="nextNFTOverlay()">&#8250;</button>
-            <div class="nft-fs-value-overlay empty" id="overlayNftValueOverlay" onclick="startEditIndividualNftValue(overlayNftIdx, 'overlayNftValueOverlay')" title="Click to set this NFT's value"></div>
+            <div class="nft-fs-value-overlay" id="overlayNftValueOverlay" onclick="startEditIndividualNftValue(overlayNftIdx, 'overlayNftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
             <div class="nft-fs-bottom">
                 <button class="nft-btn" id="overlaySlideshowBtn" onclick="toggleOverlaySlideshow()" style="background:rgba(0,0,0,0.5); border-color:rgba(255,255,255,0.3);">▶️ Play</button>
                 <div id="overlayNFTCounter" style="color:rgba(255,255,255,0.7); font-size:1rem;">1 / 1</div>
@@ -1506,7 +1506,7 @@ SOL,100</pre></div>
             <img class="ss-nft-img ss-nft-active" id="ssNftImg1" src="" alt="">
             <img class="ss-nft-img" id="ssNftImg2" src="" alt="">
             <div class="ss-nft-empty" id="ssNftEmpty"></div>
-            <div class="ss-nft-value-overlay empty" id="ssNftValueOverlay" onclick="event.stopPropagation(); startEditIndividualNftValue(screensaverNftIdx, 'ssNftValueOverlay')" title="Click to set this NFT's value"></div>
+            <div class="ss-nft-value-overlay" id="ssNftValueOverlay" onclick="event.stopPropagation(); startEditIndividualNftValue(screensaverNftIdx, 'ssNftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
             <div class="ss-nft-controls" id="ssNftControls">
                 <button class="nft-btn" onclick="event.stopPropagation(); ssNftPrev()" title="Previous NFT">◀</button>
                 <button class="nft-btn" id="ssSlideshowBtn" onclick="event.stopPropagation(); toggleSsSlideshow()">⏸️ Pause</button>
@@ -5125,10 +5125,10 @@ SOL,100</pre></div>
         const val = getNftValue(idx);
         if (val > 0) {
             el.textContent = curSym() + Math.round(toCur(val)).toLocaleString();
-            el.classList.remove('empty');
+            el.classList.add('has-value');
         } else {
-            el.textContent = '';
-            el.classList.add('empty');
+            el.textContent = 'Click to set value';
+            el.classList.remove('has-value');
         }
     }
 
@@ -5405,11 +5405,12 @@ SOL,100</pre></div>
             img1.style.display = 'none'; img2.style.display = 'none';
             empty.style.display = 'block';
             if (controls) controls.style.display = 'none';
-            if (ssValOverlay) ssValOverlay.classList.add('empty');
+            if (ssValOverlay) ssValOverlay.style.display = 'none';
             return;
         }
         empty.style.display = 'none'; img1.style.display = 'block'; img2.style.display = 'block';
         if (controls) controls.style.display = '';
+        if (ssValOverlay) ssValOverlay.style.display = '';
         screensaverNftIdx = nftIdx;
         img1.src = nftGallery[screensaverNftIdx];
         img1.classList.add('ss-nft-active'); img2.classList.remove('ss-nft-active');
