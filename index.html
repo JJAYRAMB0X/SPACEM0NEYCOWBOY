@@ -775,6 +775,11 @@
         }
         .ss-nft-toggle-btn:hover { background: rgba(0,212,255,0.15); color: rgba(255,255,255,0.8); }
         .screensaver.ss-nft-only .ss-nft-img { padding: 50px; }
+        .ss-nft-controls { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; justify-content: center; gap: 8px; align-items: center; z-index: 10; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+        .ss-nft-panel:hover .ss-nft-controls, .screensaver.ss-nft-only .ss-nft-controls { opacity: 1; pointer-events: auto; }
+        .ss-nft-controls .nft-btn { background: rgba(0,0,0,0.6); border: 1px solid rgba(0,212,255,0.3); border-radius: 8px; padding: 7px 14px; color: #00d4ff; font-size: 0.9rem; cursor: pointer; transition: all 0.3s; backdrop-filter: blur(10px); }
+        .ss-nft-controls .nft-btn:hover { background: rgba(0,212,255,0.25); transform: translateY(-2px); }
+        .ss-nft-controls .nft-btn.danger { background: rgba(0,0,0,0.6); border-color: rgba(239,68,68,0.3); color: #ef4444; font-size: 0.8rem; }
 
         /* ===== INFO BUTTON (reopen welcome) ===== */
         .subtitle-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 8px; }
@@ -1484,6 +1489,13 @@ SOL,100</pre></div>
             <img class="ss-nft-img ss-nft-active" id="ssNftImg1" src="" alt="">
             <img class="ss-nft-img" id="ssNftImg2" src="" alt="">
             <div class="ss-nft-empty" id="ssNftEmpty"></div>
+            <div class="ss-nft-controls" id="ssNftControls">
+                <button class="nft-btn" onclick="event.stopPropagation(); openNFTReorder()" title="Reorder">⊞</button>
+                <button class="nft-btn" onclick="event.stopPropagation(); ssNftPrev()" title="Previous NFT">◀</button>
+                <button class="nft-btn" id="ssSlideshowBtn" onclick="event.stopPropagation(); toggleSsSlideshow()">⏸️ Pause</button>
+                <button class="nft-btn" onclick="event.stopPropagation(); ssNftNext()" title="Next NFT">▶</button>
+                <button class="nft-btn danger" onclick="event.stopPropagation(); deleteNFT()" title="Delete NFT">🗑️</button>
+            </div>
         </div>
         <div class="ss-main" id="ssMain">
             <canvas class="bg-chart" id="ssBgChart"></canvas>
@@ -2065,6 +2077,12 @@ SOL,100</pre></div>
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape' && screensaverActive) { exitScreensaver(); return; }
             if (e.key === 'Escape') { closeOverlay('newsOverlay'); closeOverlay('nftOverlay'); closeOverlay('nftReorderOverlay'); document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active')); }
+            // Arrow keys / space in screensaver NFT Only mode
+            if (screensaverActive && ssNftPanelState === 2 && nftGallery.length > 0) {
+                if (e.key === 'ArrowLeft') { ssNftPrev(); e.preventDefault(); return; }
+                if (e.key === 'ArrowRight') { ssNftNext(); e.preventDefault(); return; }
+                if (e.key === ' ') { toggleSsSlideshow(); e.preventDefault(); return; }
+            }
             if (document.getElementById('nftOverlay').classList.contains('active')) {
                 if (e.key === 'ArrowLeft') { prevNFTOverlay(); e.preventDefault(); }
                 else if (e.key === 'ArrowRight') { nextNFTOverlay(); e.preventDefault(); }
@@ -5287,34 +5305,72 @@ SOL,100</pre></div>
     }
 
     function setupScreensaverNFT() {
+        // Always clear existing timer first to prevent competing timers
+        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = null; }
         const img1 = document.getElementById('ssNftImg1');
         const img2 = document.getElementById('ssNftImg2');
         const empty = document.getElementById('ssNftEmpty');
+        const controls = document.getElementById('ssNftControls');
         if (nftGallery.length === 0) {
             img1.style.display = 'none'; img2.style.display = 'none';
-            empty.style.display = 'block'; return;
+            empty.style.display = 'block';
+            if (controls) controls.style.display = 'none';
+            return;
         }
         empty.style.display = 'none'; img1.style.display = 'block'; img2.style.display = 'block';
+        if (controls) controls.style.display = '';
         screensaverNftIdx = nftIdx;
         img1.src = nftGallery[screensaverNftIdx];
         img1.classList.add('ss-nft-active'); img2.classList.remove('ss-nft-active');
         ssNftActiveImg = 1;
+        // Default to slideshow active
         screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000);
+        const ssBtn = document.getElementById('ssSlideshowBtn');
+        if (ssBtn) ssBtn.textContent = '⏸️ Pause';
+    }
+
+    function showSsNftImage(idx) {
+        const img1 = document.getElementById('ssNftImg1');
+        const img2 = document.getElementById('ssNftImg2');
+        if (ssNftActiveImg === 1) {
+            img2.src = nftGallery[idx];
+            img1.classList.remove('ss-nft-active'); img2.classList.add('ss-nft-active');
+            ssNftActiveImg = 2;
+        } else {
+            img1.src = nftGallery[idx];
+            img2.classList.remove('ss-nft-active'); img1.classList.add('ss-nft-active');
+            ssNftActiveImg = 1;
+        }
     }
 
     function advanceScreensaverNFT() {
         if (nftGallery.length <= 1) return;
         screensaverNftIdx = (screensaverNftIdx + 1) % nftGallery.length;
-        const img1 = document.getElementById('ssNftImg1');
-        const img2 = document.getElementById('ssNftImg2');
-        if (ssNftActiveImg === 1) {
-            img2.src = nftGallery[screensaverNftIdx];
-            img1.classList.remove('ss-nft-active'); img2.classList.add('ss-nft-active');
-            ssNftActiveImg = 2;
+        showSsNftImage(screensaverNftIdx);
+    }
+
+    function ssNftPrev() {
+        if (nftGallery.length <= 1) return;
+        screensaverNftIdx = (screensaverNftIdx - 1 + nftGallery.length) % nftGallery.length;
+        showSsNftImage(screensaverNftIdx);
+        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000); }
+    }
+
+    function ssNftNext() {
+        if (nftGallery.length <= 1) return;
+        screensaverNftIdx = (screensaverNftIdx + 1) % nftGallery.length;
+        showSsNftImage(screensaverNftIdx);
+        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000); }
+    }
+
+    function toggleSsSlideshow() {
+        const btn = document.getElementById('ssSlideshowBtn');
+        if (screensaverNftTimer) {
+            clearInterval(screensaverNftTimer); screensaverNftTimer = null;
+            btn.textContent = '▶️ Play';
         } else {
-            img1.src = nftGallery[screensaverNftIdx];
-            img2.classList.remove('ss-nft-active'); img1.classList.add('ss-nft-active');
-            ssNftActiveImg = 1;
+            screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000);
+            btn.textContent = '⏸️ Pause';
         }
     }
 
