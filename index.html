@@ -1018,7 +1018,7 @@
                         </div>
                         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
                             <div class="nft-counter" id="nftCounter" style="margin:0">1 / 1</div>
-                            <div id="nftEstValueDisplay" onclick="startEditNftValue()" style="font-size:0.75rem;font-style:italic;color:#888;cursor:pointer;padding:2px 6px;border-radius:6px;transition:background 0.2s" onmouseenter="this.style.background='rgba(255,255,255,0.08)'" onmouseleave="this.style.background='transparent'" title="Click to set estimated NFT value">Est. Value: —</div>
+                            <div id="nftEstValueDisplay" style="display:flex;align-items:center;gap:4px;font-size:0.75rem"></div>
                         </div>
                     </div>
                     <div id="nftEmpty" style="text-align:center; padding:24px; color:#555;">
@@ -5112,10 +5112,13 @@ SOL,100</pre></div>
         if (!el) return;
         const autoSum = sumNftValues();
         const displayVal = nftValueOverride ? nftEstValue : autoSum;
-        if (displayVal > 0) {
-            el.textContent = 'Total NFTs: ' + curSym() + Math.round(toCur(displayVal)).toLocaleString() + (nftValueOverride ? ' ✎' : '');
+        const valStr = displayVal > 0 ? curSym() + Math.round(toCur(displayVal)).toLocaleString() : '—';
+        if (nftValueOverride) {
+            el.innerHTML = '<span style="color:#f59e0b;font-style:italic;cursor:pointer" onclick="startEditNftValue()" title="Click to edit manual total">Manual: ' + valStr + '</span>' +
+                '<span onclick="clearNftOverride()" title="Switch to auto-sum" style="cursor:pointer;color:#10b981;font-size:0.65rem;padding:1px 5px;border:1px solid rgba(16,185,129,0.4);border-radius:4px;margin-left:2px;transition:background 0.2s" onmouseenter="this.style.background=\'rgba(16,185,129,0.15)\'" onmouseleave="this.style.background=\'transparent\'">Auto</span>';
         } else {
-            el.textContent = 'Total NFTs: —';
+            el.innerHTML = '<span style="color:#888;font-style:italic">' + valStr + '</span>' +
+                '<span onclick="enableManualNftValue()" title="Switch to manual total" style="cursor:pointer;color:#666;font-size:0.65rem;padding:1px 5px;border:1px solid rgba(255,255,255,0.15);border-radius:4px;margin-left:2px;transition:background 0.2s" onmouseenter="this.style.background=\'rgba(255,255,255,0.08)\'" onmouseleave="this.style.background=\'transparent\'">Manual</span>';
         }
     }
 
@@ -5154,21 +5157,33 @@ SOL,100</pre></div>
     function finishEditIndividualNftValue(idx, elId) {
         const input = document.getElementById('indNftValInput');
         if (!input) return;
-        let val = parseFloat(input.value) || 0;
+        const rawInput = input.value;
+        input.id = ''; // prevent double-fire from blur after enter
+        let val = parseFloat(rawInput) || 0;
         if (val > 0 && currencyMode === 'cad' && cadRate) val = val / cadRate;
-        setNftValue(idx, Math.max(0, val));
+        setNftValue(idx, Math.max(0, val)); // calls recalcNftTotal -> updateNftValueDisplay + updateTotalValue + updateStats
         updateIndividualNftValueOverlay(idx, elId);
+    }
+
+    function enableManualNftValue() {
+        nftValueOverride = true;
+        nftEstValue = sumNftValues() || nftEstValue;
+        saveNftValue();
+        startEditNftValue();
     }
 
     function startEditNftValue() {
         const el = document.getElementById('nftEstValueDisplay');
-        const displayVal = nftValueOverride ? nftEstValue : sumNftValues();
-        const currentDisplay = displayVal > 0 ? Math.round(toCur(displayVal)) : '';
-        el.innerHTML = '<input type="number" id="nftValueInput" step="any" min="0" placeholder="0" style="width:90px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:2px 6px;color:#fff;font-size:0.75rem;font-style:italic;text-align:right" value="' + currentDisplay + '"> <span style="font-size:0.6rem;color:#666;cursor:pointer" onclick="clearNftOverride()" title="Reset to auto-sum">↺</span>';
+        if (!el) return;
+        const currentDisplay = nftEstValue > 0 ? Math.round(toCur(nftEstValue)) : '';
+        el.innerHTML = '<span style="color:#f59e0b;font-size:0.7rem;font-style:italic">Manual:&nbsp;</span>' +
+            '<input type="number" id="nftValueInput" step="any" min="0" placeholder="0" style="width:80px;background:rgba(255,255,255,0.1);border:1px solid rgba(245,158,11,0.4);border-radius:6px;padding:2px 6px;color:#f59e0b;font-size:0.75rem;font-style:italic;text-align:right" value="' + currentDisplay + '">' +
+            '<span onclick="clearNftOverride()" title="Switch to auto-sum" style="cursor:pointer;color:#10b981;font-size:0.65rem;padding:1px 5px;border:1px solid rgba(16,185,129,0.4);border-radius:4px;margin-left:2px" onmouseenter="this.style.background=\'rgba(16,185,129,0.15)\'" onmouseleave="this.style.background=\'transparent\'">Auto</span>';
         const input = document.getElementById('nftValueInput');
         input.focus();
         input.select();
         input.addEventListener('keydown', e => {
+            e.stopPropagation();
             if (e.key === 'Enter') { finishEditNftValue(); }
             if (e.key === 'Escape') { updateNftValueDisplay(); }
         });
@@ -5181,7 +5196,7 @@ SOL,100</pre></div>
         let val = parseFloat(input.value) || 0;
         if (val > 0 && currencyMode === 'cad' && cadRate) val = val / cadRate;
         nftEstValue = Math.max(0, val);
-        nftValueOverride = val > 0;
+        nftValueOverride = true;
         saveNftValue();
         updateNftValueDisplay();
         updateTotalValue();
