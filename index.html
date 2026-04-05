@@ -93,6 +93,7 @@
             transition: all 0.3s ease; font-family: inherit;
         }
         input:focus, textarea:focus, select:focus { outline: none; border-color: #00d4ff; box-shadow: 0 0 20px rgba(0,212,255,0.3); }
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .token-input { min-width: 200px; }
         .amount-input { min-width: 100px; }
         textarea { resize: vertical; min-height: 80px; line-height: 1.5; width: 100%; }
@@ -924,6 +925,8 @@
                     <div style="flex:1;cursor:pointer" onclick="toggleSection('categories')">
                         <div class="section-title"><span>📊</span><span>Categories</span></div>
                     </div>
+                    <button id="catValueFilterBtn" onclick="event.stopPropagation();toggleCatValueFilter()" title="Value filter: off" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#555;font-size:0.65rem;padding:4px 8px;cursor:pointer;margin-right:2px;min-width:24px">⊘</button>
+                    <input id="catValueFilterInput" type="number" placeholder="$" oninput="event.stopPropagation();setCatValueFilterAmt(this.value)" style="display:none;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:0.65rem;padding:4px 6px;width:55px;margin-right:4px;-moz-appearance:textfield" />
                     <button id="catSortBtn" onclick="event.stopPropagation();toggleCatSort()" title="Sort: by value" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#888;font-size:0.65rem;padding:4px 8px;cursor:pointer;margin-right:4px">$↓</button>
                     <button onclick="event.stopPropagation();showManageCatsModal()" title="Manage categories" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#888;font-size:0.75rem;padding:4px 8px;cursor:pointer;margin-right:8px">⚙️</button>
                     <div class="section-toggle collapsed" id="categoriesToggle" onclick="toggleSection('categories')" style="cursor:pointer">▼</div>
@@ -1584,6 +1587,8 @@ SOL,100</pre></div>
     let currencyMode = localStorage.getItem(lsKey('currencyMode')) || 'usd'; // persisted across reloads
     let cadRate = null; // USD→CAD exchange rate, fetched once on load
     let catSortMode = 'value'; // 'value' | 'alpha' — category bubble sort order
+    let catValueFilterMode = localStorage.getItem(lsKey('catValueFilterMode')) || 'off'; // 'off' | '<' | '>'
+    let catValueFilterAmt = parseFloat(localStorage.getItem(lsKey('catValueFilterAmt'))) || 0;
     let globalMarketData = null; // cached global stats from CoinGecko
     let bgChartData = null; // cached sparkline data points for background chart
     let screensaverActive = false;
@@ -1761,6 +1766,7 @@ SOL,100</pre></div>
         setupListeners();
         initDefaultCategories();
         setupResizer();
+        initCatValueFilterUI();
         loadNftValue();
         loadNftValues();
         loadNFTs();
@@ -3881,6 +3887,9 @@ SOL,100</pre></div>
                 return filterMode === 'and' ? fa.every(f => tc.includes(f)) : fa.some(f => tc.includes(f));
             });
         }
+        if (catValueFilterMode !== 'off' && catValueFilterAmt > 0) {
+            tokens = tokens.filter(t => catValueFilterMode === '<' ? (t.value || 0) >= catValueFilterAmt : (t.value || 0) <= catValueFilterAmt);
+        }
         if (sortField) {
             tokens.sort((a, b) => {
                 let c = 0;
@@ -3944,6 +3953,39 @@ SOL,100</pre></div>
         const btn = document.getElementById('catSortBtn');
         if (btn) { btn.textContent = catSortMode === 'value' ? '$↓' : 'A-Z'; btn.title = catSortMode === 'value' ? 'Sort: by value' : 'Sort: A-Z'; }
         updateStats();
+    }
+
+    function toggleCatValueFilter() {
+        const cycle = { 'off': '<', '<': '>', '>': 'off' };
+        catValueFilterMode = cycle[catValueFilterMode] || '<';
+        localStorage.setItem(lsKey('catValueFilterMode'), catValueFilterMode);
+        const btn = document.getElementById('catValueFilterBtn');
+        const inp = document.getElementById('catValueFilterInput');
+        if (catValueFilterMode === 'off') {
+            btn.textContent = '⊘'; btn.title = 'Value filter: off'; btn.style.color = '#555';
+            if (inp) inp.style.display = 'none';
+        } else {
+            btn.textContent = catValueFilterMode; btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt; btn.style.color = '#00d4ff';
+            if (inp) { inp.style.display = ''; inp.value = catValueFilterAmt || ''; inp.focus(); }
+        }
+        renderNetwork(); updateStats();
+    }
+
+    function setCatValueFilterAmt(val) {
+        catValueFilterAmt = parseFloat(val) || 0;
+        localStorage.setItem(lsKey('catValueFilterAmt'), catValueFilterAmt);
+        const btn = document.getElementById('catValueFilterBtn');
+        if (btn && catValueFilterMode !== 'off') btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt;
+        renderNetwork(); updateStats();
+    }
+
+    function initCatValueFilterUI() {
+        const btn = document.getElementById('catValueFilterBtn');
+        const inp = document.getElementById('catValueFilterInput');
+        if (catValueFilterMode !== 'off') {
+            if (btn) { btn.textContent = catValueFilterMode; btn.style.color = '#00d4ff'; btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt; }
+            if (inp) { inp.style.display = ''; inp.value = catValueFilterAmt || ''; }
+        }
     }
 
     function updateResetBtn() { const b = document.getElementById('resetBtn'); if (b) b.style.display = (activeFilters.size > 0 || sortField || viewMode === 'regroup') ? 'block' : 'none'; }
