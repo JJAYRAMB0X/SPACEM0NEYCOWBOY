@@ -1761,9 +1761,9 @@ SOL,100</pre></div>
         setupListeners();
         initDefaultCategories();
         setupResizer();
-        loadNFTs();
         loadNftValue();
         loadNftValues();
+        loadNFTs();
         fetchCADRate();
         fetchGlobalStats();
         fetchBgChartData();
@@ -5037,11 +5037,10 @@ SOL,100</pre></div>
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const d = await r.json();
             const newItems = [];
-            if (d.Data) {
-                d.Data.forEach(item => {
-                    newItems.push({ title: item.title, link: item.url || item.guid, source: item.source_info?.name || item.source || 'CryptoCompare', pubDate: new Date(item.published_on * 1000) });
-                });
-            }
+            const articles = Array.isArray(d.Data) ? d.Data : Array.isArray(d.data) ? d.data : Array.isArray(d) ? d : [];
+            articles.forEach(item => {
+                newItems.push({ title: item.title, link: item.url || item.guid, source: item.source_info?.name || item.source || 'CryptoCompare', pubDate: new Date((item.published_on || item.publishedOn || 0) * 1000) });
+            });
             if (newItems.length > 0) {
                 const existing = new Set(allNews.map(n => n.link.toLowerCase().trim()));
                 const unique = newItems.filter(n => { const u = n.link.toLowerCase().trim(); if (existing.has(u)) return false; existing.add(u); return true; });
