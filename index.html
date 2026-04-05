@@ -5022,6 +5022,11 @@ SOL,100</pre></div>
     // ============================================================
     // CRYPTO NEWS
     // ============================================================
+    const newsSources = [
+        { url: 'https://api.rss2json.com/v1/api.json?rss_url=https://cointelegraph.com/rss', name: 'CoinTelegraph' },
+        { url: 'https://api.rss2json.com/v1/api.json?rss_url=https://decrypt.co/feed', name: 'Decrypt' }
+    ];
+
     async function loadNews() {
         if (newsLoading) return;
         newsLoading = true;
@@ -5030,16 +5035,19 @@ SOL,100</pre></div>
         toast('Loading news...', 'info');
 
         try {
-            const r = await Promise.race([
-                fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN'),
-                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))
-            ]);
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const d = await r.json();
+            const results = await Promise.allSettled(newsSources.map(src =>
+                Promise.race([
+                    fetch(src.url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(d => ({ items: d.items || [], name: src.name })),
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))
+                ])
+            ));
             const newItems = [];
-            const articles = Array.isArray(d.Data) ? d.Data : Array.isArray(d.data) ? d.data : Array.isArray(d) ? d : [];
-            articles.forEach(item => {
-                newItems.push({ title: item.title, link: item.url || item.guid, source: item.source_info?.name || item.source || 'CryptoCompare', pubDate: new Date((item.published_on || item.publishedOn || 0) * 1000) });
+            results.forEach(r => {
+                if (r.status !== 'fulfilled') return;
+                const { items, name } = r.value;
+                items.forEach(item => {
+                    newItems.push({ title: item.title, link: item.link || item.guid, source: item.author?.replace(/^.*by\s+/i, '') || name, pubDate: new Date(item.pubDate) });
+                });
             });
             if (newItems.length > 0) {
                 const existing = new Set(allNews.map(n => n.link.toLowerCase().trim()));
@@ -5051,6 +5059,8 @@ SOL,100</pre></div>
                 document.getElementById('newsList').style.display = 'block';
                 if (btn) { btn.style.display = 'block'; btn.disabled = false; btn.innerHTML = '📰 Load More'; }
                 toast(unique.length > 0 ? 'Added ' + unique.length + ' stories' : 'No new stories', unique.length > 0 ? 'success' : 'warning');
+            } else {
+                document.getElementById('newsLoading').innerHTML = '<div style="color:#ef4444">No news articles found</div><button class="btn btn-primary" onclick="loadNews()" style="margin-top:8px">🔄 Retry</button>';
             }
         } catch (err) {
             console.error('News error:', err);
