@@ -3888,7 +3888,7 @@ SOL,100</pre></div>
             });
         }
         if (catValueFilterMode !== 'off' && catValueFilterAmt > 0) {
-            tokens = tokens.filter(t => catValueFilterMode === '<' ? (t.value || 0) >= catValueFilterAmt : (t.value || 0) <= catValueFilterAmt);
+            tokens = tokens.filter(t => catValueFilterMode === '<' ? (t.value || 0) < catValueFilterAmt : (t.value || 0) > catValueFilterAmt);
         }
         if (sortField) {
             tokens.sort((a, b) => {
