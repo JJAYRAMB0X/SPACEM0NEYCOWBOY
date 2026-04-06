@@ -427,10 +427,10 @@
         .nft-value-overlay { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; font-style: italic; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 2px 10px; border-radius: 8px; cursor: pointer; transition: background 0.2s, color 0.2s; white-space: nowrap; z-index: 5; }
         .nft-value-overlay:hover { background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.8); }
         .nft-value-overlay.has-value { color: rgba(255,255,255,0.7); }
-        .ss-nft-value-overlay { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); font-size: 0.85rem; font-style: italic; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 4px 14px; border-radius: 10px; cursor: pointer; transition: all 0.3s; white-space: nowrap; z-index: 10; opacity: 0; pointer-events: none; }
-        .ss-nft-panel:hover .ss-nft-value-overlay, .screensaver.ss-nft-only .ss-nft-value-overlay { opacity: 1; pointer-events: auto; }
-        .ss-nft-value-overlay:hover { background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.8); }
-        .ss-nft-value-overlay.has-value { color: rgba(255,255,255,0.7); }
+        .ss-nft-value-overlay { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); font-size: 1.4rem; font-weight: 700; font-style: normal; color: #ffd700; background: rgba(0,0,0,0.55); backdrop-filter: blur(6px); padding: 6px 20px; border-radius: 12px; cursor: pointer; transition: all 0.3s; white-space: nowrap; z-index: 10; opacity: 1; pointer-events: auto; text-shadow: 0 0 12px rgba(255,215,0,0.5), 0 1px 3px rgba(0,0,0,0.8); letter-spacing: 1px; font-family: 'Georgia', 'Times New Roman', serif; }
+        .ss-nft-value-overlay:hover { background: rgba(0,0,0,0.75); color: #ffe44d; text-shadow: 0 0 18px rgba(255,215,0,0.7), 0 1px 3px rgba(0,0,0,0.8); }
+        .ss-nft-value-overlay.has-value { color: #ffd700; }
+        .ss-nft-value-overlay:not(.has-value) { font-size: 0.85rem; font-weight: 400; color: rgba(255,255,255,0.4); text-shadow: none; font-family: inherit; letter-spacing: 0; }
         .nft-fs-value-overlay { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 0.9rem; font-style: italic; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); padding: 4px 14px; border-radius: 10px; cursor: pointer; transition: background 0.2s, color 0.2s; white-space: nowrap; z-index: 10; }
         .nft-fs-value-overlay:hover { background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.8); }
         .nft-fs-value-overlay.has-value { color: rgba(255,255,255,0.7); }
