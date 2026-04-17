@@ -722,6 +722,7 @@
         .ss-nft-empty { width: 100%; height: 100%; background: linear-gradient(135deg, #050510 0%, #0d0d2b 50%, #050510 100%); background-size: 200% 200%; animation: ssGradient 8s ease infinite; }
         @keyframes ssGradient { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
         .ss-main { width: 75%; height: 100%; position: relative; overflow: hidden; display: flex; flex-direction: column; background: radial-gradient(circle at 30% 70%, #0a0a0a 0%, #1a1a2e 40%, #16213e 100%); }
+        .ss-main.ss-grid-scroll { overflow-y: auto; }
         .screensaver .network-container { min-height: 100%; }
         .ss-watermark { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); font-size: 0.9rem; color: rgba(255,255,255,0.08); font-weight: 600; letter-spacing: 2px; text-transform: uppercase; pointer-events: none; }
         .ss-esc-hint { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.6); padding: 10px 24px; border-radius: 20px; font-size: 0.85rem; opacity: 0; transition: opacity 0.3s; z-index: 100001; pointer-events: none; }
@@ -4148,6 +4149,7 @@ SOL,100</pre></div>
         const MIN_TOP = 120;
 
         // If sorting or filtering, use grid layout (no animation) — show ALL tokens as grid
+        const ssMain = document.getElementById('ssMain');
         if (sortField || viewMode === 'regroup') {
             const cx = cw / 2;
             const cols = Math.ceil(Math.sqrt(tokens.length));
@@ -4159,8 +4161,23 @@ SOL,100</pre></div>
                 const col = i % cols, row = Math.floor(i / cols);
                 createNode(c, t, sx + col * spacing, sy + row * spacing, tokens);
             });
+            // Enable scrolling in screensaver/share grid view when content overflows
+            if (screensaverActive && ssMain) {
+                const gridBottom = sy + gh + spacing / 2;
+                if (gridBottom > ch) {
+                    ssMain.classList.add('ss-grid-scroll');
+                    c.style.minHeight = gridBottom + 'px';
+                } else {
+                    ssMain.classList.remove('ss-grid-scroll');
+                    c.style.minHeight = '';
+                }
+            }
         } else {
             // Solar system layout with animated orbits (CRYPTO ONLY)
+            if (screensaverActive && ssMain) {
+                ssMain.classList.remove('ss-grid-scroll');
+                c.style.minHeight = '';
+            }
             const sorted = [...cryptoTokens].sort((a, b) => b.value - a.value);
             const cx = cw / 2;
 
@@ -5441,6 +5458,8 @@ SOL,100</pre></div>
         const ssMainReset = document.getElementById('ssMain');
         ssMainReset.style.display = '';
         ssMainReset.style.width = '';
+        ssMainReset.classList.remove('ss-grid-scroll');
+        document.getElementById('ssNetworkContainer').style.minHeight = '';
         document.getElementById('screensaver').classList.remove('ss-nft-only');
         document.getElementById('ssNftToggleBtn').style.display = 'none';
         document.getElementById('ssGlobalStats').style.display = '';
