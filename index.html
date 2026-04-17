@@ -5424,6 +5424,7 @@ SOL,100</pre></div>
     function enterScreensaver() {
         if (screensaverActive) return;
         screensaverActive = true;
+        document.body.style.overflow = 'hidden';
         applySsNftState();
         if (screensaverMode === 'full') document.documentElement.requestFullscreen().catch(() => {});
         document.getElementById('screensaver').classList.add('active');
@@ -5443,6 +5444,7 @@ SOL,100</pre></div>
     function exitScreensaver() {
         if (!screensaverActive) return;
         screensaverActive = false;
+        document.body.style.overflow = '';
         if (shareModeActive) exitShareMode();
         if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = null; }
         if (ssEscHintTimer) { clearTimeout(ssEscHintTimer); ssEscHintTimer = null; }
@@ -5872,6 +5874,7 @@ SOL,100</pre></div>
         // Enter screensaver (reuses existing system)
         if (screensaverActive) return;
         screensaverActive = true;
+        document.body.style.overflow = 'hidden';
 
         // Add hide-values CSS class BEFORE rendering so all created elements are hidden
         const screensaverEl = document.getElementById('screensaver');
