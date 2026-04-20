@@ -582,6 +582,8 @@
         .share-hide-values .stat-value,
         .share-hide-values .total-value-amount,
         .share-hide-values .global-stats,
+        .share-hide-values #totalBreakdown,
+        .share-hide-values .cat-total-box .value,
         .share-hide-values #ssPortfolioValue,
         .share-hide-values .ss-nft-value-overlay,
         .share-hide-values .nft-value-overlay { display: none !important; }
@@ -857,7 +859,8 @@
                         <span class="ss-mode-opt active" id="ssModeFull" onclick="setSSMode('full')">Full</span>
                         <span class="ss-mode-opt" id="ssModeWindowed" onclick="setSSMode('windowed')">Window</span>
                     </div>
-                    <button class="auto-update-btn" id="autoUpdateBtn" onclick="toggleAutoUpdate()" title="Auto-update prices on load and every 5 minutes">Auto Update: OFF</button>
+                    <button class="auto-update-btn" id="autoUpdateBtn" onclick="toggleAutoUpdate()" title="Auto-update prices on load and every 5 minutes">Auto Update Prices: OFF</button>
+                    <button class="auto-update-btn" id="hideValuesBtn" onclick="toggleHideValues()" title="Hide all portfolio values, holdings, totals and market cap">👁 Values: ON</button>
                 </div>
             </div>
 
@@ -939,10 +942,10 @@
 
             <!-- Actions -->
             <div class="glass-card actions-grid">
+                <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
                 <button class="btn btn-secondary btn-full" onclick="showModal('importHelpModal')">📥 Import Portfolio</button>
                 <input type="file" id="csvInput" class="file-input" accept=".csv">
                 <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
-                <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
                 <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
                 <div class="branding" id="brandingEl">
                     <span class="branding-inner">⚔️ Powered by JohnJay</span>
@@ -964,20 +967,6 @@
                         </div>
                         <div class="dp-footer"><span class="dp-hearts">💜</span> Every bit helps, thank you! <span class="dp-hearts">💜</span></div>
                     </div>
-                </div>
-            </div>
-
-            <!-- AI Search Widget -->
-            <div class="glass-card">
-                <div class="section-header" onclick="toggleSection('aiSearch')">
-                    <div class="section-title"><span>🤖</span><span>Crypto Research</span></div>
-                    <div class="section-toggle" id="aiSearchToggle">▼</div>
-                </div>
-                <div class="section-body" id="aiSearchBody">
-                    <input type="text" id="aiSearchInput" placeholder="Search any token, topic, or question..." style="width:100%; margin-bottom:8px" onkeydown="if(event.key==='Enter') doResearch()">
-                    <button class="btn btn-primary btn-full" onclick="doResearch()">🤖 Research</button>
-                    <div id="searchResults" class="search-results" style="display:none"></div>
-                    <div style="font-size:0.7rem; color:#555; text-align:center; margin-top:6px;">Opens Google search + quick research links</div>
                 </div>
             </div>
 
@@ -1029,6 +1018,20 @@
                         <div style="font-size:2rem; margin-bottom:6px;">🖼️</div>
                         <div style="font-size:0.8rem;">No NFTs yet — add your favorites!</div>
                     </div>
+                </div>
+            </div>
+
+            <!-- AI Search Widget -->
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('aiSearch')">
+                    <div class="section-title"><span>🤖</span><span>Crypto Research</span></div>
+                    <div class="section-toggle" id="aiSearchToggle">▼</div>
+                </div>
+                <div class="section-body" id="aiSearchBody">
+                    <input type="text" id="aiSearchInput" placeholder="Search any token, topic, or question..." style="width:100%; margin-bottom:8px" onkeydown="if(event.key==='Enter') doResearch()">
+                    <button class="btn btn-primary btn-full" onclick="doResearch()">🤖 Research</button>
+                    <div id="searchResults" class="search-results" style="display:none"></div>
+                    <div style="font-size:0.7rem; color:#555; text-align:center; margin-top:6px;">Opens Google search + quick research links</div>
                 </div>
             </div>
         </div>
@@ -1265,8 +1268,20 @@
     <div class="modal-overlay" id="manageCatsModal">
         <div class="modal" style="max-width:500px">
             <div class="modal-title">⚙️ Manage Categories</div>
-            <div class="modal-subtitle">Delete categories you no longer need. Categories with 0 tokens are shown first.</div>
-            <div id="manageCatsList" style="max-height:400px;overflow-y:auto;margin:16px 0"></div>
+            <div class="modal-subtitle">Add new categories or delete existing ones. Categories with 0 tokens are shown first.</div>
+            <div id="manageCatsList" style="max-height:320px;overflow-y:auto;margin:16px 0"></div>
+            <div style="border-top:1px solid rgba(255,255,255,0.1); padding-top:14px; margin-top:8px;">
+                <div style="font-size:0.75rem;color:#888;margin-bottom:8px;letter-spacing:0.3px;">Add New Category</div>
+                <div style="display:flex; gap:8px; margin-bottom:8px;">
+                    <input type="text" id="manageNewChainInput" placeholder="New chain name..." style="flex:1">
+                    <button class="btn btn-secondary" onclick="createChainFromManage()" style="white-space:nowrap">+ Chain</button>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <input type="text" id="manageNewCatInput" placeholder="Custom category..." style="flex:1">
+                    <input type="color" id="manageNewCatColor" value="#10b981" title="Pick category color" style="width:40px;height:36px;padding:2px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);cursor:pointer">
+                    <button class="btn btn-secondary" onclick="createCustomFromManage()" style="white-space:nowrap">+ Custom</button>
+                </div>
+            </div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeModal('manageCatsModal')">Close</button>
             </div>
@@ -1846,6 +1861,10 @@ SOL,100</pre></div>
         // Sync auto-update toggle button and start if enabled
         syncAutoUpdateBtn();
         if (autoUpdateEnabled) startAutoUpdate();
+
+        // Apply persisted hide-values state
+        syncHideValuesBtn();
+        applyHideValues();
     }
 
     function startAutoUpdate() {
@@ -1863,7 +1882,7 @@ SOL,100</pre></div>
     function syncAutoUpdateBtn() {
         const btn = document.getElementById('autoUpdateBtn');
         if (!btn) return;
-        btn.textContent = autoUpdateEnabled ? 'Auto Update: ON' : 'Auto Update: OFF';
+        btn.textContent = autoUpdateEnabled ? 'Auto Update Prices: ON' : 'Auto Update Prices: OFF';
         btn.classList.toggle('active', autoUpdateEnabled);
     }
 
@@ -1876,6 +1895,29 @@ SOL,100</pre></div>
         } else {
             stopAutoUpdate();
         }
+    }
+
+    // ============================================================
+    // HIDE VALUES TOGGLE (main app)
+    // ============================================================
+    let hideValuesEnabled = localStorage.getItem(lsKey('hideValues')) === 'true';
+
+    function syncHideValuesBtn() {
+        const btn = document.getElementById('hideValuesBtn');
+        if (!btn) return;
+        btn.textContent = hideValuesEnabled ? '🙈 Values: OFF' : '👁 Values: ON';
+        btn.classList.toggle('active', hideValuesEnabled);
+    }
+
+    function applyHideValues() {
+        document.body.classList.toggle('share-hide-values', hideValuesEnabled);
+    }
+
+    function toggleHideValues() {
+        hideValuesEnabled = !hideValuesEnabled;
+        localStorage.setItem(lsKey('hideValues'), hideValuesEnabled ? 'true' : 'false');
+        syncHideValuesBtn();
+        applyHideValues();
     }
 
     // ============================================================
@@ -2580,6 +2622,34 @@ SOL,100</pre></div>
             list.appendChild(row);
         });
         showModal('manageCatsModal');
+    }
+
+    function createChainFromManage() {
+        const input = document.getElementById('manageNewChainInput');
+        const name = input.value.trim().toLowerCase();
+        if (!name) return;
+        if (categories.has(name)) { toast('Category already exists', 'warning'); return; }
+        categories.set(name, { tokens: [], color: getCatColor(name), type: 'chain' });
+        Store.save();
+        refreshAll();
+        input.value = '';
+        showManageCatsModal();
+        toast('Added chain: ' + formatCatName(name), 'success');
+    }
+
+    function createCustomFromManage() {
+        const input = document.getElementById('manageNewCatInput');
+        const colorInput = document.getElementById('manageNewCatColor');
+        const name = input.value.trim().toLowerCase();
+        if (!name) return;
+        if (categories.has(name)) { toast('Category already exists', 'warning'); return; }
+        const color = (colorInput && colorInput.value) ? colorInput.value : getCatColor(name);
+        categories.set(name, { tokens: [], color, type: 'custom' });
+        Store.save();
+        refreshAll();
+        input.value = '';
+        showManageCatsModal();
+        toast('Added category: ' + formatCatName(name), 'success');
     }
 
     function deleteCategory(name, count) {
