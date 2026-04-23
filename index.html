@@ -32,6 +32,7 @@
         }
         .left-column.collapsed { width: 0; min-width: 0; padding: 0; border-right: none; overflow: hidden; opacity: 0; }
         .right-column { flex: 1; padding: 20px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        .right-column.grid-scroll { overflow-y: auto; }
         .resize-divider { width: 5px; background: rgba(0,212,255,0.2); cursor: col-resize; flex-shrink: 0; transition: all 0.5s ease; }
         .resize-divider.hidden { width: 0; opacity: 0; }
         .resize-divider:hover { background: rgba(0,212,255,0.5); }
@@ -4220,34 +4221,43 @@ SOL,100</pre></div>
 
         // If sorting or filtering, use grid layout (no animation) — show ALL tokens as grid
         const ssMain = document.getElementById('ssMain');
+        const rightCol = document.getElementById('rightColumn');
         if (sortField || viewMode === 'regroup') {
             const cx = cw / 2;
-            const cols = Math.ceil(Math.sqrt(tokens.length));
             const spacing = sortField === 'whaleScore' ? 210 : 185;
-            const gw = cols * spacing, gh = Math.ceil(tokens.length / cols) * spacing;
+            // Clamp cols to what actually fits in the container width so extra tokens
+            // wrap into new rows instead of pushing the leftmost column off-screen
+            // (behind the left panel).
+            const maxColsForWidth = Math.max(1, Math.floor((cw - 40) / spacing));
+            const cols = Math.max(1, Math.min(Math.ceil(Math.sqrt(tokens.length)), maxColsForWidth));
+            const rows = Math.ceil(tokens.length / cols);
+            const gw = cols * spacing, gh = rows * spacing;
             const sx = cx - gw / 2 + spacing / 2;
             const sy = Math.max(MIN_TOP, (ch - gh) / 2 + spacing / 2);
             tokens.forEach((t, i) => {
                 const col = i % cols, row = Math.floor(i / cols);
                 createNode(c, t, sx + col * spacing, sy + row * spacing, tokens);
             });
-            // Enable scrolling in screensaver/share grid view when content overflows
+            // Enable scrolling when the grid overflows — for screensaver (ss-main) and
+            // the main view (right-column, which is otherwise overflow:hidden for orbit).
+            const gridBottom = sy + gh + spacing / 2;
+            const overflows = gridBottom > ch;
             if (screensaverActive && ssMain) {
-                const gridBottom = sy + gh + spacing / 2;
-                if (gridBottom > ch) {
-                    ssMain.classList.add('ss-grid-scroll');
-                    c.style.minHeight = gridBottom + 'px';
-                } else {
-                    ssMain.classList.remove('ss-grid-scroll');
-                    c.style.minHeight = '';
-                }
+                if (overflows) { ssMain.classList.add('ss-grid-scroll'); c.style.minHeight = gridBottom + 'px'; }
+                else { ssMain.classList.remove('ss-grid-scroll'); c.style.minHeight = ''; }
+                if (rightCol) rightCol.classList.remove('grid-scroll');
+            } else if (rightCol) {
+                if (overflows) { rightCol.classList.add('grid-scroll'); c.style.minHeight = gridBottom + 'px'; }
+                else { rightCol.classList.remove('grid-scroll'); c.style.minHeight = ''; }
+                if (ssMain) ssMain.classList.remove('ss-grid-scroll');
             }
         } else {
             // Solar system layout with animated orbits (CRYPTO ONLY)
             if (screensaverActive && ssMain) {
                 ssMain.classList.remove('ss-grid-scroll');
-                c.style.minHeight = '';
             }
+            if (rightCol) rightCol.classList.remove('grid-scroll');
+            c.style.minHeight = '';
             const sorted = [...cryptoTokens].sort((a, b) => b.value - a.value);
             const cx = cw / 2;
 
