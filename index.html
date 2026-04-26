@@ -3981,9 +3981,12 @@ SOL,100</pre></div>
         el.innerHTML = '';
         const fa = Array.from(activeFilters);
 
-        // Get filtered token set for combined total
-        const filtered = getFilteredTokens();
-        const combinedTotal = filtered.reduce((s, t) => s + t.value, 0);
+        // Combined total: respect the AND/OR mode but ignore the value cutoff (which is visual-only)
+        const combinedTotal = portfolio.reduce((s, t) => {
+            const tc = []; categories.forEach((cd, cn) => { if (cd.tokens.includes(t.id)) tc.push(cn); });
+            const matches = filterMode === 'and' ? fa.every(f => tc.includes(f)) : fa.some(f => tc.includes(f));
+            return matches ? s + (t.value || 0) : s;
+        }, 0);
 
         // Individual category totals — all use real category membership
         fa.forEach(cn => {
@@ -3999,11 +4002,13 @@ SOL,100</pre></div>
             el.appendChild(box);
         });
 
-        // Combined total
-        const cb = document.createElement('div');
-        cb.className = 'cat-total-box combined';
-        cb.innerHTML = '<div class="label">' + (filterMode === 'and' ? 'Intersection' : 'Combined') + '</div><div class="value">' + formatCompact(combinedTotal) + '</div>';
-        el.appendChild(cb);
+        // Combined total — only meaningful when 2+ categories are selected
+        if (fa.length > 1) {
+            const cb = document.createElement('div');
+            cb.className = 'cat-total-box combined';
+            cb.innerHTML = '<div class="label">' + (filterMode === 'and' ? 'Intersection' : 'Combined') + '</div><div class="value">' + formatCompact(combinedTotal) + '</div>';
+            el.appendChild(cb);
+        }
         el.classList.add('active');
     }
 
