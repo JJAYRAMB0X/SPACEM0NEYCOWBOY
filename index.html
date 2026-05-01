@@ -322,6 +322,19 @@
         .node-change { position: absolute; top: -22px; left: 50%; transform: translateX(-50%); font-size: 0.8rem; font-weight: bold; white-space: nowrap; }
         .node-whale { position: absolute; top: calc(var(--node-size, 80px) + 74px); left: 50%; transform: translateX(-50%); font-size: 0.65rem; font-weight: bold; color: #a78bfa; white-space: nowrap; display: none; }
 
+        /* Per-token auto-update indicator: fluorescent green for value/amount/mcap; 24h change keeps its red/green via inline style */
+        .auto-updating .node-value,
+        .auto-updating .node-amount,
+        .auto-updating .node-mcap { color: #00ff88; text-shadow: 0 0 6px rgba(0,255,136,0.55); }
+
+        /* Edit Info modal — Auto toggle controls */
+        .edit-info-auto-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.65rem; color: #888; }
+        .edit-info-auto-btn { background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.3); border-radius: 8px; color: #888; font-size: 0.6rem; padding: 2px 8px; cursor: pointer; font-weight: 600; white-space: nowrap; transition: all 0.3s; }
+        .edit-info-auto-btn:hover { background: rgba(0,255,136,0.18); color: #00ff88; }
+        .edit-info-auto-btn.active { background: rgba(0,255,136,0.18); border-color: #00ff88; color: #00ff88; box-shadow: 0 0 8px rgba(0,255,136,0.35); }
+        .edit-info-auto-interval { width: 56px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #ccc; font-size: 0.65rem; padding: 2px 6px; }
+        .edit-info-auto-interval:disabled { opacity: 0.4; }
+
         /* ===== COMET (Stock nodes) ===== */
         .comet-tail {
             position: absolute;
@@ -1334,10 +1347,17 @@
                             <label class="input-label" id="editInfoPriceLabel">Price</label>
                             <div style="display:flex;gap:4px;align-items:center">
                                 <button type="button" id="editInfoCheckPriceBtn" onclick="checkEditInfoPrice()" style="background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.4);border-radius:8px;color:#10b981;font-size:0.6rem;padding:2px 8px;cursor:pointer;font-weight:600;white-space:nowrap;transition:all 0.3s">🔄 Check</button>
+                                <button type="button" id="editInfoAutoBtn" class="edit-info-auto-btn" onclick="toggleEditInfoAutoUpdate()" title="Auto-update this token's price on a custom interval">Auto: OFF</button>
                                 <button type="button" id="editInfoCurrToggle" onclick="toggleEditInfoCurrency()" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:0.65rem;padding:2px 8px;cursor:pointer;font-weight:600;letter-spacing:0.5px">CAD</button>
                             </div>
                         </div>
                         <input type="number" id="editInfoPrice" class="token-input" step="any" min="0" style="width:100%" placeholder="Current price" oninput="updateEditInfoConversion()">
+                        <div id="editInfoAutoRow" class="edit-info-auto-row" style="display:none">
+                            <span>Every</span>
+                            <input type="number" id="editInfoAutoInterval" class="edit-info-auto-interval" min="1" step="1" value="3" onchange="onEditInfoAutoIntervalChange()">
+                            <span>min</span>
+                            <span id="editInfoAutoStatus" style="margin-left:6px;color:#00ff88"></span>
+                        </div>
                         <div id="editInfoRateHint" style="font-size:0.65rem;color:#888;margin-top:4px"></div>
                         <div id="editInfoPriceError" style="font-size:0.7rem;color:#ef4444;margin-top:4px;display:none"></div>
                     </div>
@@ -1735,7 +1755,7 @@ SOL,100</pre></div>
             } catch (e) { console.error('Load failed:', e); }
             return false;
         },
-        clear() { localStorage.removeItem(lsKey('portfolio')); portfolio = []; categories = new Map(); initDefaultCategories(); refreshAll(); toast('Portfolio cleared', 'info'); }
+        clear() { tokenAutoTimers.forEach(id => clearInterval(id)); tokenAutoTimers.clear(); localStorage.removeItem(lsKey('portfolio')); portfolio = []; categories = new Map(); initDefaultCategories(); refreshAll(); toast('Portfolio cleared', 'info'); }
     };
 
     function saveNFTs() { console.log('NFT order saved:', nftGallery.map((u, i) => (i + 1) + ': ' + u.split('/').pop())); localStorage.setItem(lsKey('nftGallery'), JSON.stringify(nftGallery)); }
@@ -1867,6 +1887,9 @@ SOL,100</pre></div>
         // Sync auto-update toggle button and start if enabled
         syncAutoUpdateBtn();
         if (autoUpdateEnabled) startAutoUpdate();
+
+        // Restart per-token auto-update timers for any tokens that had it enabled
+        restoreAutoUpdateTimers();
 
         // Apply persisted hide-values state
         syncHideValuesBtn();
@@ -3199,6 +3222,7 @@ SOL,100</pre></div>
         // Hide check price button for cash (price is always 1.00)
         document.getElementById('editInfoCheckPriceBtn').style.display = t.assetType === 'cash' ? 'none' : '';
         document.getElementById('editInfoPriceError').style.display = 'none';
+        syncEditInfoAutoBtn();
         applyEditInfoCurrencyUI();
         showModal('editInfoModal');
     }
@@ -3340,10 +3364,197 @@ SOL,100</pre></div>
         }
     }
 
+    // ============================================================
+    // PER-TOKEN AUTO-UPDATE (independent of global Auto Update)
+    // ============================================================
+    const TOKEN_AUTO_MIN_MINUTES = 1;
+    const TOKEN_AUTO_DEFAULT_MINUTES = 3;
+    const tokenAutoTimers = new Map(); // token.id -> intervalId
+
+    // Fetch latest price/24h/marketCap and write directly to the token. Returns true on success.
+    async function fetchTokenPriceInPlace(token) {
+        if (!token || token.assetType === 'cash') return false;
+        try {
+            if (token.assetType === 'metal') {
+                const metalType = token.metalType || (token.symbol === 'XAU' ? 'gold' : 'silver');
+                const price = await fetchMetalPrice(metalType);
+                if (!price || price <= 0) return false;
+                token.price = price;
+                token.value = (token.amount || 0) * price;
+                token.priceSource = 'goldapi';
+                try {
+                    const change = await fetchMetal24hChange(metalType);
+                    if (change != null) token.priceChange24h = change;
+                } catch (e) {}
+                return true;
+            }
+            if (token.assetType === 'stock') {
+                const d = await fetchStockQuote(token.symbol, token.priceSource, token.exchange);
+                if (!d.price || d.price <= 0) return false;
+                token.price = d.price;
+                token.value = (token.amount || 0) * d.price;
+                if (d.priceChange24h != null) token.priceChange24h = d.priceChange24h;
+                if (d.marketCap) token.marketCap = d.marketCap;
+                if (d.priceSource) token.priceSource = d.priceSource;
+                return true;
+            }
+            // Crypto — DexScreener first, then CoinGecko fallback
+            let price = 0, found = false;
+            const hasRealAddr = isRealAddress(token.address);
+            if (hasRealAddr) {
+                try {
+                    const r = await fetch('https://api.dexscreener.com/latest/dex/tokens/' + token.address);
+                    if (r.ok) {
+                        const data = await r.json();
+                        if (data?.pairs?.length > 0) {
+                            let best = token.chainId ? data.pairs.find(p => p.chainId === token.chainId) : null;
+                            if (!best) best = data.pairs.reduce((a, b) => (b.liquidity?.usd || 0) > (a.liquidity?.usd || 0) ? b : a);
+                            price = parseFloat(best.priceUsd) || 0;
+                            if (price > 0) {
+                                token.price = price;
+                                token.value = (token.amount || 0) * price;
+                                if (best.priceChange?.h24 != null) token.priceChange24h = best.priceChange.h24;
+                                if (best.marketCap) token.marketCap = best.marketCap;
+                                if (best.liquidity?.usd) token.liquidity = best.liquidity.usd;
+                                if (best.volume?.h24) token.volume24h = best.volume.h24;
+                                found = true;
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
+            if (!found && !hasRealAddr && !token.isCustom) {
+                try {
+                    const r = await fetch('https://api.dexscreener.com/latest/dex/search?q=' + encodeURIComponent(token.symbol));
+                    if (r.ok) {
+                        const data = await r.json();
+                        if (data?.pairs?.length > 0) {
+                            let best = token.chainId ? data.pairs.find(p => p.chainId === token.chainId) : null;
+                            if (!best) best = data.pairs.reduce((a, b) => (b.liquidity?.usd || 0) > (a.liquidity?.usd || 0) ? b : a);
+                            price = parseFloat(best.priceUsd) || 0;
+                            if (price > 0) {
+                                token.price = price;
+                                token.value = (token.amount || 0) * price;
+                                if (best.priceChange?.h24 != null) token.priceChange24h = best.priceChange.h24;
+                                if (best.marketCap) token.marketCap = best.marketCap;
+                                found = true;
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
+            if (!found) {
+                const geckoId = token.coinGeckoId || KNOWN_COINS[token.symbol.toUpperCase()] || null;
+                if (geckoId) {
+                    try {
+                        const d = await fetchCoinGeckoById(geckoId);
+                        if (d.price > 0) {
+                            token.price = d.price;
+                            token.value = (token.amount || 0) * d.price;
+                            if (d.priceChange24h != null) token.priceChange24h = d.priceChange24h;
+                            if (d.marketCap) token.marketCap = d.marketCap;
+                            found = true;
+                        }
+                    } catch (e) {}
+                }
+            }
+            return found;
+        } catch (e) {
+            console.error('[AutoUpdate] fetch failed for ' + token.symbol, e);
+            return false;
+        }
+    }
+
+    async function runTokenAutoTick(tokenId) {
+        const token = portfolio.find(t => t.id === tokenId);
+        if (!token || !token.autoUpdate) { stopTokenAutoUpdate({ id: tokenId }); return; }
+        const ok = await fetchTokenPriceInPlace(token);
+        if (ok) { Store.save(); refreshAll(); }
+    }
+
+    function startTokenAutoUpdate(token) {
+        if (!token || token.assetType === 'cash') return;
+        stopTokenAutoUpdate(token);
+        const minutes = Math.max(TOKEN_AUTO_MIN_MINUTES, Number(token.autoUpdateInterval) || TOKEN_AUTO_DEFAULT_MINUTES);
+        const intervalMs = minutes * 60 * 1000;
+        const tid = token.id;
+        // Initial fetch shortly after start
+        setTimeout(() => { if (tokenAutoTimers.has(tid)) runTokenAutoTick(tid); }, 600);
+        const timerId = setInterval(() => runTokenAutoTick(tid), intervalMs);
+        tokenAutoTimers.set(tid, timerId);
+    }
+
+    function stopTokenAutoUpdate(token) {
+        if (!token) return;
+        const timerId = tokenAutoTimers.get(token.id);
+        if (timerId) { clearInterval(timerId); tokenAutoTimers.delete(token.id); }
+    }
+
+    function restoreAutoUpdateTimers() {
+        portfolio.forEach(t => { if (t.autoUpdate && t.assetType !== 'cash') startTokenAutoUpdate(t); });
+    }
+
+    function syncEditInfoAutoBtn() {
+        if (editingIdx === null) return;
+        const t = portfolio[editingIdx];
+        const btn = document.getElementById('editInfoAutoBtn');
+        const row = document.getElementById('editInfoAutoRow');
+        const intervalInput = document.getElementById('editInfoAutoInterval');
+        const status = document.getElementById('editInfoAutoStatus');
+        if (!btn || !row || !intervalInput || !status) return;
+        // Cash has no price feed — hide auto controls entirely
+        if (t.assetType === 'cash') {
+            btn.style.display = 'none';
+            row.style.display = 'none';
+            return;
+        }
+        btn.style.display = '';
+        const on = !!t.autoUpdate;
+        btn.textContent = on ? 'Auto: ON' : 'Auto: OFF';
+        btn.classList.toggle('active', on);
+        row.style.display = on ? '' : 'none';
+        intervalInput.value = Math.max(TOKEN_AUTO_MIN_MINUTES, Number(t.autoUpdateInterval) || TOKEN_AUTO_DEFAULT_MINUTES);
+        status.textContent = on ? '· running' : '';
+    }
+
+    function toggleEditInfoAutoUpdate() {
+        if (editingIdx === null) return;
+        const t = portfolio[editingIdx];
+        if (t.assetType === 'cash') return;
+        if (t.autoUpdate) {
+            t.autoUpdate = false;
+            stopTokenAutoUpdate(t);
+            toast('Auto-update OFF for ' + t.symbol, 'info');
+        } else {
+            const intervalInput = document.getElementById('editInfoAutoInterval');
+            const requested = Number(intervalInput?.value) || TOKEN_AUTO_DEFAULT_MINUTES;
+            t.autoUpdateInterval = Math.max(TOKEN_AUTO_MIN_MINUTES, Math.floor(requested));
+            t.autoUpdate = true;
+            startTokenAutoUpdate(t);
+            toast('Auto-update ON for ' + t.symbol + ' (every ' + t.autoUpdateInterval + ' min)', 'success');
+        }
+        Store.save();
+        refreshAll();
+        syncEditInfoAutoBtn();
+    }
+
+    function onEditInfoAutoIntervalChange() {
+        if (editingIdx === null) return;
+        const t = portfolio[editingIdx];
+        const intervalInput = document.getElementById('editInfoAutoInterval');
+        if (!intervalInput) return;
+        const requested = Math.max(TOKEN_AUTO_MIN_MINUTES, Math.floor(Number(intervalInput.value) || TOKEN_AUTO_DEFAULT_MINUTES));
+        intervalInput.value = requested;
+        t.autoUpdateInterval = requested;
+        Store.save();
+        if (t.autoUpdate) startTokenAutoUpdate(t); // restart with new interval
+    }
+
     function deleteToken() {
         if (editingIdx === null) return;
         if (!confirm('Delete this token?')) return;
         const token = portfolio[editingIdx];
+        stopTokenAutoUpdate(token);
         categories.forEach(cd => { cd.tokens = cd.tokens.filter(id => id !== token.id); });
         categories.forEach((cd, cn) => { if (cd.tokens.length === 0 && cd.type === 'chain') categories.delete(cn); });
         portfolio.splice(editingIdx, 1);
@@ -3394,7 +3605,10 @@ SOL,100</pre></div>
         const finalFailed = []; // tokens that failed all sources
 
         // === PHASE 1: DexScreener pass (fast, no rate limits) ===
+        let autoSkipped = 0;
         for (const token of portfolio) {
+            // Per-token auto-update is authoritative — skip in global pass to avoid double-fetches
+            if (token.autoUpdate) { autoSkipped++; continue; }
             // Metals go to phase 4
             if (token.assetType === 'metal') { metalTokensToUpdate.push(token); continue; }
             // Cash — no price feed needed, skip entirely
@@ -3600,6 +3814,7 @@ SOL,100</pre></div>
         if (fhStockUpdated > 0) msg += ', ' + fhStockUpdated + ' stock' + (fhStockUpdated !== 1 ? 's' : '') + ' via Finnhub';
         if (tdStockUpdated > 0) msg += ', ' + tdStockUpdated + ' stock' + (tdStockUpdated !== 1 ? 's' : '') + ' via TwelveData';
         if (metalUpdated > 0) msg += ', ' + metalUpdated + ' metal' + (metalUpdated !== 1 ? 's' : '') + ' via FreeGoldAPI';
+        if (autoSkipped > 0) msg += ' (skipped ' + autoSkipped + ' on per-token auto)';
 
         if (finalFailed.length > 0) {
             msg += ', ' + finalFailed.length + ' failed';
@@ -4404,7 +4619,7 @@ SOL,100</pre></div>
             return node;
         }
         const node = document.createElement('div');
-        node.className = 'network-node' + (token.assetType === 'metal' ? ' star-node' : '');
+        node.className = 'network-node' + (token.assetType === 'metal' ? ' star-node' : '') + (token.autoUpdate ? ' auto-updating' : '');
 
         // Find primary color from categories
         let color = '#00d4ff';
@@ -4495,7 +4710,7 @@ SOL,100</pre></div>
     function createCometNode(container, token, allVisible) {
         // Create the node with the same base as createNode, but add a comet tail
         const node = document.createElement('div');
-        node.className = 'network-node comet-node';
+        node.className = 'network-node comet-node' + (token.autoUpdate ? ' auto-updating' : '');
 
         let color = '#f59e0b'; // default amber/gold for stocks
         categories.forEach((cd, cn) => { if (cd.tokens.includes(token.id) && cd.type === 'chain') color = cd.color; });
@@ -4622,7 +4837,7 @@ SOL,100</pre></div>
     // ============================================================
     function createStarNode(container, token, allVisible) {
         const node = document.createElement('div');
-        node.className = 'network-node star-node';
+        node.className = 'network-node star-node' + (token.autoUpdate ? ' auto-updating' : '');
 
         const isGold = token.metalType === 'gold';
         const color = isGold ? '#FFD700' : '#C0C0C0';
