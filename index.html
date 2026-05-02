@@ -93,6 +93,8 @@
             border-radius: 12px; padding: 10px 14px; color: #fff; font-size: 0.95rem;
             transition: all 0.3s ease; font-family: inherit;
         }
+        /* Dropdown options: native popup colors don't inherit from select — force dark theme */
+        select option { background: #1a1a1a; color: #fff; }
         input:focus, textarea:focus, select:focus { outline: none; border-color: #00d4ff; box-shadow: 0 0 20px rgba(0,212,255,0.3); }
         input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .token-input { min-width: 200px; }
@@ -1421,7 +1423,7 @@ SOL,100</pre></div>
             <div class="modal-subtitle">Saved wallet addresses for on-chain balance lookups</div>
             <div class="welcome-privacy" style="margin:10px 0">
                 <div class="welcome-privacy-icon">🔒</div>
-                <div>Wallet addresses are stored locally on your device only. They are sent to public blockchain RPC endpoints when you click "Pull Balance" so balances can be read.</div>
+                <div>Wallet addresses are stored locally on your device only.</div>
             </div>
             <div style="display:flex;flex-direction:column;gap:10px;margin:12px 0">
                 <div style="display:flex;gap:8px">
@@ -3823,52 +3825,79 @@ SOL,100</pre></div>
 
     async function pullBalanceForToken(token) {
         loadWallets();
-        if (wallets.length === 0) return { total: 0, breakdown: [], error: 'No wallets saved — add one in 🔑 Wallets first' };
+        console.group('[PullBalance] ' + (token.symbol || '?'));
+        console.log('Token data:', { symbol: token.symbol, address: token.address, chainId: token.chainId, assetType: token.assetType, isCustom: token.isCustom });
+        console.log('Saved wallets:', wallets.map(w => ({ label: w.label, chainType: w.chainType, addr: w.address })));
 
-        const isSolanaToken = token.chainId === 'solana';
+        if (wallets.length === 0) {
+            console.warn('No wallets saved');
+            console.groupEnd();
+            return { total: 0, breakdown: [], error: 'No wallets saved — add one in 🔑 Wallets first' };
+        }
+
+        // Normalize the token's chainId for case-insensitive lookups
+        const normChain = (token.chainId || '').toLowerCase();
+        const isSolanaToken = normChain === 'solana';
         const native = isNativeForChain(token);
+        console.log('Resolved:', { normChain, isSolanaToken, isNative: native });
+
         const breakdown = [];
         let total = 0;
         let queriedAny = false;
 
         if (isSolanaToken) {
             const solWallets = wallets.filter(w => w.chainType === 'solana');
-            if (solWallets.length === 0) return { total: 0, breakdown: [], error: 'No Solana wallets saved' };
+            if (solWallets.length === 0) { console.groupEnd(); return { total: 0, breakdown: [], error: 'No Solana wallets saved (the token is on Solana but you only have EVM wallets)' }; }
             for (const w of solWallets) {
                 queriedAny = true;
                 try {
                     let amt;
                     if (native || !isRealAddress(token.address)) {
+                        console.log('[SOL native] wallet=' + w.address);
                         amt = await fetchSolanaNativeBalance(w.address);
                     } else {
+                        console.log('[SPL] wallet=' + w.address + ' mint=' + token.address);
                         amt = await fetchSolanaSplBalance(w.address, token.address);
                     }
-                    if (amt > 0) { breakdown.push({ label: w.label, amount: amt }); total += amt; }
+                    console.log('  → amount:', amt);
+                    breakdown.push({ label: w.label, amount: amt || 0 });
+                    if (amt > 0) total += amt;
                     await delay(200);
                 } catch (e) {
+                    console.error('  → ERROR:', e);
                     breakdown.push({ label: w.label, amount: 0, error: e.message || 'failed' });
                 }
             }
         } else {
-            const rpcUrl = evmRpcFor(token);
-            if (!rpcUrl) return { total: 0, breakdown: [], error: 'Chain "' + (token.chainId || 'unknown') + '" is not supported for balance lookups' };
+            // Look up RPC URL using normalized chainId
+            const rpcUrl = EVM_RPC_URLS[normChain] || null;
+            console.log('EVM RPC lookup:', { normChain, rpcUrl, supportedChains: Object.keys(EVM_RPC_URLS) });
+            if (!rpcUrl) {
+                console.groupEnd();
+                return { total: 0, breakdown: [], error: 'Chain "' + (token.chainId || 'unknown') + '" is not in the supported list (' + Object.keys(EVM_RPC_URLS).filter(k => !k.includes('-')).join(', ') + ')' };
+            }
             const evmWallets = wallets.filter(w => w.chainType === 'evm');
-            if (evmWallets.length === 0) return { total: 0, breakdown: [], error: 'No EVM wallets saved' };
+            if (evmWallets.length === 0) { console.groupEnd(); return { total: 0, breakdown: [], error: 'No EVM wallets saved (the token is on ' + token.chainId + ' but you only have Solana wallets)' }; }
 
             // For ERC20: ensure we know decimals (cached on token after first fetch)
             let decimals = null;
             if (!native && isRealAddress(token.address)) {
                 if (typeof token.decimals === 'number' && token.decimals > 0) {
                     decimals = token.decimals;
+                    console.log('Using cached decimals:', decimals);
                 } else {
+                    console.log('Fetching decimals() for', token.address, 'on', rpcUrl);
                     try {
                         decimals = await fetchEvmTokenDecimals(token.address, rpcUrl);
+                        console.log('  → decimals:', decimals);
                         if (decimals >= 0 && decimals < 36) {
                             token.decimals = decimals;
                             Store.save();
                         }
                     } catch (e) {
-                        return { total: 0, breakdown: [], error: 'Could not fetch token decimals: ' + (e.message || 'unknown') };
+                        console.error('decimals() failed:', e);
+                        console.groupEnd();
+                        return { total: 0, breakdown: [], error: 'decimals() RPC call failed: ' + (e.message || 'unknown') + ' — check console for details' };
                     }
                     await delay(150);
                 }
@@ -3880,19 +3909,26 @@ SOL,100</pre></div>
                 try {
                     let raw;
                     if (native) {
+                        console.log('[NATIVE] eth_getBalance wallet=' + w.address + ' chain=' + normChain);
                         raw = await fetchEvmNativeBalance(w.address, rpcUrl);
                     } else {
+                        console.log('[ERC20] balanceOf wallet=' + w.address + ' contract=' + token.address + ' chain=' + normChain);
                         raw = await fetchEvmTokenBalance(w.address, token.address, rpcUrl);
                     }
                     const amt = Number(raw) / Math.pow(10, useDecimals);
-                    if (amt > 0) { breakdown.push({ label: w.label, amount: amt }); total += amt; }
-                    await delay(150); // be polite to public RPCs
+                    console.log('  → raw:', raw.toString(), '/ 10^' + useDecimals + ' =', amt);
+                    breakdown.push({ label: w.label, amount: amt });
+                    if (amt > 0) total += amt;
+                    await delay(150);
                 } catch (e) {
+                    console.error('  → ERROR:', e);
                     breakdown.push({ label: w.label, amount: 0, error: e.message || 'failed' });
                 }
             }
         }
 
+        console.log('Result:', { total, breakdown });
+        console.groupEnd();
         if (!queriedAny) return { total: 0, breakdown: [], error: 'No matching wallets for this chain' };
         return { total, breakdown };
     }
@@ -3918,9 +3954,17 @@ SOL,100</pre></div>
                 if (status) { status.textContent = result.error; status.style.color = '#ef4444'; }
                 return;
             }
+            const errored = result.breakdown.filter(b => b.error);
             const nonZero = result.breakdown.filter(b => b.amount > 0);
             if (nonZero.length === 0) {
-                if (status) { status.textContent = 'Token not found in any saved wallets'; status.style.color = '#f59e0b'; }
+                // Distinguish: did calls succeed with 0 balance, or did they all fail?
+                if (errored.length === result.breakdown.length && errored.length > 0) {
+                    // All wallets errored — surface the first error
+                    const firstErr = errored[0].error || 'unknown';
+                    if (status) { status.textContent = 'RPC calls failed: ' + firstErr + ' — open console for details'; status.style.color = '#ef4444'; }
+                } else {
+                    if (status) { status.textContent = '0 balance found for this token in your saved wallets'; status.style.color = '#f59e0b'; }
+                }
                 return;
             }
             // Auto-fill Amount
