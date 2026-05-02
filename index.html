@@ -3852,24 +3852,31 @@ SOL,100</pre></div>
         return parseInt(result, 16);
     }
 
-    // Try each Solana RPC in sequence; first one that returns valid JSON wins
+    // Per-session memory of which Solana endpoint worked last — try that one first next call
+    let solanaPreferredRpc = null;
+    // Try each Solana RPC in sequence; first one that returns valid JSON wins. Logs every attempt.
     async function solanaRpcCall(method, params) {
+        // Order: preferred (if any) first, then the rest
+        const ordered = solanaPreferredRpc
+            ? [solanaPreferredRpc, ...SOLANA_RPCS.filter(u => u !== solanaPreferredRpc)]
+            : SOLANA_RPCS;
         let lastErr = null;
-        for (const url of SOLANA_RPCS) {
+        for (const url of ordered) {
             try {
                 const r = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
                 });
-                if (!r.ok) { lastErr = new Error(url + ' HTTP ' + r.status); continue; }
+                if (!r.ok) { lastErr = new Error(url + ' HTTP ' + r.status); console.warn('[Solana] ' + method + ' ← ' + url + ' HTTP ' + r.status); continue; }
                 const d = await r.json();
-                if (d.error) { lastErr = new Error(url + ': ' + (d.error.message || 'rpc error')); continue; }
-                console.log('[Solana] used', url);
+                if (d.error) { lastErr = new Error(url + ': ' + (d.error.message || 'rpc error')); console.warn('[Solana] ' + method + ' ← ' + url + ' RPC err:', d.error.message); continue; }
+                console.log('[Solana] ' + method + ' ✓ ' + url);
+                solanaPreferredRpc = url;
                 return d.result;
             } catch (e) {
                 lastErr = e;
-                console.warn('[Solana] failed', url, e.message);
+                console.warn('[Solana] ' + method + ' ← ' + url + ' threw:', e.message);
             }
         }
         throw lastErr || new Error('All Solana RPCs failed');
@@ -4068,16 +4075,12 @@ SOL,100</pre></div>
     // ============================================================
     const SOLANA_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
     const SCAN_DUST_USD = 3;
-    // Solana RPCs that allow unfiltered getTokenAccountsByOwner (programId only)
-    const SOLANA_SCAN_RPCS = [
-        'https://api.mainnet-beta.solana.com',
-        'https://solana-mainnet.g.alchemy.com/v2/demo',
-    ];
 
     let walletScanState = {
         running: false,
         cancelled: false,
         findings: [], // discovered tokens with { walletLabel, walletAddress, source, address, symbol, name, decimals, balance, price, value, marketCap, logo, status: 'new'|'match'|'diff', portfolioMatch?: token, action?: 'add'|'use_wallet'|'keep_portfolio'|'skip' }
+        solanaSplFailed: false, // true if the unfiltered programId query failed on every RPC
     };
 
     function scanProgress(label, detail) {
@@ -4097,7 +4100,7 @@ SOL,100</pre></div>
         loadWallets();
         if (wallets.length === 0) { toast('Add a wallet first', 'warning'); return; }
 
-        walletScanState = { running: true, cancelled: false, findings: [] };
+        walletScanState = { running: true, cancelled: false, findings: [], solanaSplFailed: false };
         closeModal('walletManagerModal');
         showModal('walletScanProgressModal');
         scanProgress('Scanning your wallets…', 'Starting');
@@ -4217,32 +4220,15 @@ SOL,100</pre></div>
         return findings;
     }
 
-    // Try each Solana scan RPC in order (only mainnet-beta-class endpoints support unfiltered programId)
-    async function solanaScanRpcCall(method, params) {
-        let lastErr = null;
-        for (const url of SOLANA_SCAN_RPCS) {
-            try {
-                const r = await fetch(url, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
-                });
-                if (!r.ok) { lastErr = new Error(url + ' HTTP ' + r.status); continue; }
-                const d = await r.json();
-                if (d.error) { lastErr = new Error(url + ': ' + (d.error.message || 'rpc error')); continue; }
-                console.log('[ScanSol] used', url);
-                return d.result;
-            } catch (e) { lastErr = e; console.warn('[ScanSol] failed', url, e.message); }
-        }
-        throw lastErr || new Error('All Solana scan RPCs failed');
-    }
-
     async function discoverSolanaAssets(wallet) {
         const findings = [];
 
-        // 1) Native SOL
+        // 1) Native SOL — uses the same solanaRpcCall as Pull Balance
         try {
-            const result = await solanaScanRpcCall('getBalance', [wallet.address]);
+            console.log('[Scan-Solana] native SOL for', wallet.label, wallet.address);
+            const result = await solanaRpcCall('getBalance', [wallet.address]);
             const sol = (result?.value || 0) / 1e9;
+            console.log('[Scan-Solana] native SOL =', sol);
             if (sol > 0) {
                 findings.push({
                     walletLabel: wallet.label, walletAddress: wallet.address,
@@ -4252,12 +4238,16 @@ SOL,100</pre></div>
                     symbol: 'SOL', name: 'Solana', decimals: 9, balance: sol,
                 });
             }
-        } catch (e) { console.warn('[Scan] native SOL for ' + wallet.label + ' failed:', e.message); }
+        } catch (e) { console.warn('[Scan-Solana] native SOL for ' + wallet.label + ' failed:', e.message); }
 
-        // 2) SPL tokens via getTokenAccountsByOwner (jsonParsed gives uiAmount + decimals + mint)
+        // 2) SPL tokens via getTokenAccountsByOwner (jsonParsed gives uiAmount + decimals + mint).
+        // Note: this is the unfiltered programId query — heavier than the per-mint query Pull Balance does,
+        // and many public RPCs explicitly block it. If all endpoints reject it, we mark Solana SPL as failed
+        // and leave it to the user to use Pull Balance per-token.
         try {
             scanProgress('Reading Solana balances', wallet.label + ': listing SPL accounts');
-            const result = await solanaScanRpcCall('getTokenAccountsByOwner',
+            console.log('[Scan-Solana] SPL list for', wallet.label);
+            const result = await solanaRpcCall('getTokenAccountsByOwner',
                 [wallet.address, { programId: SOLANA_TOKEN_PROGRAM_ID }, { encoding: 'jsonParsed' }]);
             const accounts = result?.value || [];
             // A wallet can have multiple accounts per mint — sum them
@@ -4282,7 +4272,9 @@ SOL,100</pre></div>
                 });
             }
         } catch (e) {
-            console.warn('[Scan] SPL discovery failed for ' + wallet.label + ':', e.message);
+            console.warn('[Scan-Solana] SPL discovery failed for ' + wallet.label + ':', e.message);
+            walletScanState.solanaSplFailed = true;
+            walletScanState.solanaSplError = e.message || 'all endpoints rejected';
         }
         return findings;
     }
@@ -4390,6 +4382,13 @@ SOL,100</pre></div>
             (hiddenCount > 0 ? ' · ' + hiddenCount + ' hidden as dust' : '');
 
         const sections = [];
+        if (walletScanState.solanaSplFailed) {
+            sections.push('<div style="border:1px solid rgba(245,158,11,0.4);background:rgba(245,158,11,0.08);border-radius:12px;padding:12px;color:#f59e0b;font-size:0.78rem;line-height:1.5">' +
+                '⚠️ <strong>Solana scan unavailable</strong> — all public RPC endpoints rejected the unfiltered token-list query. ' +
+                'Use <strong>Pull Balance</strong> on individual Solana tokens instead (right-click a token → Edit Info → 📥 Pull Balance). ' +
+                'Native SOL was scanned where possible. EVM scan results are unaffected.' +
+                '</div>');
+        }
         if (newOnes.length > 0) sections.push(renderScanSection('🆕 New Tokens', '#10b981', 'rgba(16,185,129,0.08)', newOnes, 'new'));
         if (diffs.length > 0) sections.push(renderScanSection('⚠️ Balance Mismatch', '#f59e0b', 'rgba(245,158,11,0.08)', diffs, 'diff'));
         if (matches.length > 0) sections.push(renderScanSection('✓ Already Tracked', '#6b7280', 'rgba(107,114,128,0.08)', matches, 'match'));
