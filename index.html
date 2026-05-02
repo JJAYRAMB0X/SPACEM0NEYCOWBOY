@@ -3714,6 +3714,12 @@ SOL,100</pre></div>
         'https://solana-rpc.publicnode.com',
         'https://api.mainnet-beta.solana.com',
     ];
+    // Helius — only used for the heavy `getTokenAccountsByOwner` programId query during scan.
+    // Public RPCs reject this query; Helius free tier accepts it.
+    const HELIUS_SOLANA_RPCS = [
+        'https://beta.helius-rpc.com/?api-key=63104d80-60d3-4d53-be77-aeff94dabaae',
+        'https://mainnet.helius-rpc.com/?api-key=63104d80-60d3-4d53-be77-aeff94dabaae',
+    ];
 
     // Native token decimals (used for native balance like ETH/BNB) — most EVM chains use 18, SOL uses 9
     const NATIVE_DECIMALS = { solana: 9 }; // EVM defaults to 18
@@ -3855,28 +3861,39 @@ SOL,100</pre></div>
     // Per-session memory of which Solana endpoint worked last — try that one first next call
     let solanaPreferredRpc = null;
     // Try each Solana RPC in sequence; first one that returns valid JSON wins. Logs every attempt.
-    async function solanaRpcCall(method, params) {
-        // Order: preferred (if any) first, then the rest
-        const ordered = solanaPreferredRpc
-            ? [solanaPreferredRpc, ...SOLANA_RPCS.filter(u => u !== solanaPreferredRpc)]
-            : SOLANA_RPCS;
+    // options.preferUrls — array of URLs to try BEFORE the standard fallback list (e.g. Helius for heavy queries).
+    //                     When set, the session cache is bypassed (read + write) so callers can scope endpoint use per query.
+    async function solanaRpcCall(method, params, options = {}) {
+        const preferUrls = options.preferUrls || null;
+        let ordered;
+        if (preferUrls) {
+            // Heavy-query mode: preferred URLs first, then standard publics as final fallback.
+            ordered = [...preferUrls, ...SOLANA_RPCS.filter(u => !preferUrls.includes(u))];
+        } else {
+            // Standard mode: session-preferred URL first (if any), then the rest of the publics.
+            ordered = solanaPreferredRpc
+                ? [solanaPreferredRpc, ...SOLANA_RPCS.filter(u => u !== solanaPreferredRpc)]
+                : SOLANA_RPCS;
+        }
         let lastErr = null;
         for (const url of ordered) {
+            const tag = url.startsWith('https://') ? url.replace('https://', '').split('?')[0] : url;
             try {
                 const r = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
                 });
-                if (!r.ok) { lastErr = new Error(url + ' HTTP ' + r.status); console.warn('[Solana] ' + method + ' ← ' + url + ' HTTP ' + r.status); continue; }
+                if (!r.ok) { lastErr = new Error(tag + ' HTTP ' + r.status); console.warn('[Solana] ' + method + ' ← ' + tag + ' HTTP ' + r.status); continue; }
                 const d = await r.json();
-                if (d.error) { lastErr = new Error(url + ': ' + (d.error.message || 'rpc error')); console.warn('[Solana] ' + method + ' ← ' + url + ' RPC err:', d.error.message); continue; }
-                console.log('[Solana] ' + method + ' ✓ ' + url);
-                solanaPreferredRpc = url;
+                if (d.error) { lastErr = new Error(tag + ': ' + (d.error.message || 'rpc error')); console.warn('[Solana] ' + method + ' ← ' + tag + ' RPC err:', d.error.message); continue; }
+                console.log('[Solana] ' + method + ' ✓ ' + tag);
+                // Only update the session cache when running standard queries — we don't want Helius leaking into Pull Balance traffic.
+                if (!preferUrls) solanaPreferredRpc = url;
                 return d.result;
             } catch (e) {
                 lastErr = e;
-                console.warn('[Solana] ' + method + ' ← ' + url + ' threw:', e.message);
+                console.warn('[Solana] ' + method + ' ← ' + tag + ' threw:', e.message);
             }
         }
         throw lastErr || new Error('All Solana RPCs failed');
@@ -4241,14 +4258,14 @@ SOL,100</pre></div>
         } catch (e) { console.warn('[Scan-Solana] native SOL for ' + wallet.label + ' failed:', e.message); }
 
         // 2) SPL tokens via getTokenAccountsByOwner (jsonParsed gives uiAmount + decimals + mint).
-        // Note: this is the unfiltered programId query — heavier than the per-mint query Pull Balance does,
-        // and many public RPCs explicitly block it. If all endpoints reject it, we mark Solana SPL as failed
-        // and leave it to the user to use Pull Balance per-token.
+        // The unfiltered programId query is heavy — public RPCs block it, so we route this specific
+        // call through Helius first (free tier accepts it). Public RPCs remain as last-resort fallback.
         try {
             scanProgress('Reading Solana balances', wallet.label + ': listing SPL accounts');
             console.log('[Scan-Solana] SPL list for', wallet.label);
             const result = await solanaRpcCall('getTokenAccountsByOwner',
-                [wallet.address, { programId: SOLANA_TOKEN_PROGRAM_ID }, { encoding: 'jsonParsed' }]);
+                [wallet.address, { programId: SOLANA_TOKEN_PROGRAM_ID }, { encoding: 'jsonParsed' }],
+                { preferUrls: HELIUS_SOLANA_RPCS });
             const accounts = result?.value || [];
             // A wallet can have multiple accounts per mint — sum them
             const byMint = new Map();
@@ -4382,13 +4399,6 @@ SOL,100</pre></div>
             (hiddenCount > 0 ? ' · ' + hiddenCount + ' hidden as dust' : '');
 
         const sections = [];
-        if (walletScanState.solanaSplFailed) {
-            sections.push('<div style="border:1px solid rgba(245,158,11,0.4);background:rgba(245,158,11,0.08);border-radius:12px;padding:12px;color:#f59e0b;font-size:0.78rem;line-height:1.5">' +
-                '⚠️ <strong>Solana scan unavailable</strong> — all public RPC endpoints rejected the unfiltered token-list query. ' +
-                'Use <strong>Pull Balance</strong> on individual Solana tokens instead (right-click a token → Edit Info → 📥 Pull Balance). ' +
-                'Native SOL was scanned where possible. EVM scan results are unaffected.' +
-                '</div>');
-        }
         if (newOnes.length > 0) sections.push(renderScanSection('🆕 New Tokens', '#10b981', 'rgba(16,185,129,0.08)', newOnes, 'new'));
         if (diffs.length > 0) sections.push(renderScanSection('⚠️ Balance Mismatch', '#f59e0b', 'rgba(245,158,11,0.08)', diffs, 'diff'));
         if (matches.length > 0) sections.push(renderScanSection('✓ Already Tracked', '#6b7280', 'rgba(107,114,128,0.08)', matches, 'match'));
