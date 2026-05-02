@@ -962,7 +962,10 @@
             <!-- Actions -->
             <div class="glass-card actions-grid">
                 <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
-                <button class="btn btn-secondary btn-full" onclick="showModal('importHelpModal')">📥 Import Portfolio</button>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
+                    <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
+                </div>
                 <input type="file" id="csvInput" class="file-input" accept=".csv">
                 <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
                 <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
@@ -1339,8 +1342,12 @@
                 </div>
                 <div style="display:flex;gap:12px">
                     <div style="flex:1">
-                        <label class="input-label">Amount / Shares</label>
+                        <div style="display:flex;align-items:center;justify-content:space-between">
+                            <label class="input-label">Amount / Shares</label>
+                            <button type="button" id="editInfoPullBalanceBtn" onclick="pullBalanceForEditInfo()" title="Pull on-chain balance from saved wallets" style="background:rgba(155,93,229,0.15);border:1px solid rgba(155,93,229,0.45);border-radius:8px;color:#c5a3ff;font-size:0.6rem;padding:2px 8px;cursor:pointer;font-weight:600;white-space:nowrap;transition:all 0.3s">📥 Pull Balance</button>
+                        </div>
                         <input type="number" id="editInfoAmount" class="token-input" step="any" min="0" style="width:100%" placeholder="0.0">
+                        <div id="editInfoPullBalanceStatus" style="font-size:0.65rem;color:#888;margin-top:4px;min-height:14px"></div>
                     </div>
                     <div style="flex:1">
                         <div style="display:flex;align-items:center;justify-content:space-between">
@@ -1403,6 +1410,35 @@ SOL,100</pre></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeModal('importHelpModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="closeModal('importHelpModal'); document.getElementById('csvInput').click()">Choose CSV File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Manager Modal -->
+    <div class="modal-overlay" id="walletManagerModal">
+        <div class="modal" style="max-width:560px">
+            <div class="modal-title">🔑 Wallets</div>
+            <div class="modal-subtitle">Saved wallet addresses for on-chain balance lookups</div>
+            <div class="welcome-privacy" style="margin:10px 0">
+                <div class="welcome-privacy-icon">🔒</div>
+                <div>Wallet addresses are stored locally on your device only. They are sent to public blockchain RPC endpoints when you click "Pull Balance" so balances can be read.</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;margin:12px 0">
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="walletLabelInput" class="token-input" style="flex:1;min-width:0" placeholder="Label (e.g. Main EVM)" maxlength="40">
+                    <select id="walletChainTypeInput" class="token-input" style="flex:0 0 110px">
+                        <option value="evm">EVM</option>
+                        <option value="solana">Solana</option>
+                    </select>
+                </div>
+                <input type="text" id="walletAddressInput" class="token-input" style="width:100%" placeholder="Address (0x... for EVM, base58 for Solana)">
+                <div style="display:flex;justify-content:flex-end">
+                    <button class="btn btn-primary" style="padding:8px 14px" onclick="addWallet()">+ Add Wallet</button>
+                </div>
+            </div>
+            <div id="walletListContainer" style="max-height:260px;overflow-y:auto;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('walletManagerModal')">Close</button>
             </div>
         </div>
     </div>
@@ -1812,6 +1848,7 @@ SOL,100</pre></div>
         loadNftValue();
         loadNftValues();
         loadNFTs();
+        loadWallets();
         fetchCADRate();
         fetchGlobalStats();
         fetchBgChartData();
@@ -3222,6 +3259,12 @@ SOL,100</pre></div>
         // Hide check price button for cash (price is always 1.00)
         document.getElementById('editInfoCheckPriceBtn').style.display = t.assetType === 'cash' ? 'none' : '';
         document.getElementById('editInfoPriceError').style.display = 'none';
+        // Pull Balance only applies to crypto (assetType === 'crypto' or undefined for legacy crypto entries)
+        const isCryptoToken = !t.assetType || t.assetType === 'crypto';
+        const pullBtn = document.getElementById('editInfoPullBalanceBtn');
+        const pullStatus = document.getElementById('editInfoPullBalanceStatus');
+        if (pullBtn) pullBtn.style.display = isCryptoToken ? '' : 'none';
+        if (pullStatus) { pullStatus.textContent = ''; pullStatus.style.color = '#888'; }
         syncEditInfoAutoBtn();
         applyEditInfoCurrencyUI();
         showModal('editInfoModal');
@@ -3584,6 +3627,317 @@ SOL,100</pre></div>
         if (ctxIdx === null) return;
         portfolio[ctxIdx].notes = document.getElementById('editNotesInput').value.trim();
         Store.save(); closeModal('notesModal');
+    }
+
+    // ============================================================
+    // WALLET MANAGER + ON-CHAIN BALANCE LOOKUPS
+    // ============================================================
+    // Per-chain public JSON-RPC endpoints — no API key needed, works for all chains.
+    // (Etherscan V2's free tier only covers chainid=1; V1 standalone endpoints are deprecated.)
+    // PublicNode endpoints are the primary; verified to support eth_getBalance + eth_call.
+    const EVM_RPC_URLS = {
+        'ethereum': 'https://ethereum-rpc.publicnode.com',
+        'bsc': 'https://bsc-rpc.publicnode.com', 'binance-smart-chain': 'https://bsc-rpc.publicnode.com',
+        'polygon': 'https://polygon-bor-rpc.publicnode.com', 'polygon-pos': 'https://polygon-bor-rpc.publicnode.com',
+        'arbitrum': 'https://arbitrum-one-rpc.publicnode.com', 'arbitrum-one': 'https://arbitrum-one-rpc.publicnode.com',
+        'optimism': 'https://optimism-rpc.publicnode.com', 'optimistic-ethereum': 'https://optimism-rpc.publicnode.com',
+        'base': 'https://base-rpc.publicnode.com',
+        'linea': 'https://linea-rpc.publicnode.com',
+        'ink': 'https://rpc-gel.inkonchain.com',
+        'avalanche': 'https://avalanche-c-chain-rpc.publicnode.com', 'avalanche-c': 'https://avalanche-c-chain-rpc.publicnode.com',
+    };
+    const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+
+    // Native token decimals (used for native balance like ETH/BNB) — most EVM chains use 18, SOL uses 9
+    const NATIVE_DECIMALS = { solana: 9 }; // EVM defaults to 18
+
+    // Symbols recognized as the chain's native asset for balance lookups
+    const NATIVE_SYMBOLS = {
+        'ethereum': ['ETH', 'WETH'],
+        'bsc': ['BNB', 'WBNB'],
+        'polygon': ['MATIC', 'POL', 'WMATIC'],
+        'arbitrum': ['ETH'],
+        'optimism': ['ETH'],
+        'base': ['ETH'],
+        'linea': ['ETH'],
+        'ink': ['ETH'],
+        'avalanche': ['AVAX', 'WAVAX'],
+        'fantom': ['FTM', 'WFTM'],
+    };
+
+    let wallets = [];
+    function loadWallets() {
+        try {
+            const d = JSON.parse(localStorage.getItem(lsKey('wallets')));
+            if (Array.isArray(d)) wallets = d;
+        } catch (e) { wallets = []; }
+    }
+    function saveWallets() { localStorage.setItem(lsKey('wallets'), JSON.stringify(wallets)); }
+
+    function openWalletManager() {
+        loadWallets();
+        renderWalletList();
+        document.getElementById('walletLabelInput').value = '';
+        document.getElementById('walletAddressInput').value = '';
+        showModal('walletManagerModal');
+    }
+
+    function isValidEvmAddress(a) { return typeof a === 'string' && /^0x[a-fA-F0-9]{40}$/.test(a); }
+    function isValidSolAddress(a) { return typeof a === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a); }
+
+    function addWallet() {
+        const label = document.getElementById('walletLabelInput').value.trim();
+        const addr = document.getElementById('walletAddressInput').value.trim();
+        const chainType = document.getElementById('walletChainTypeInput').value;
+        if (!label) { toast('Label is required', 'warning'); return; }
+        if (!addr) { toast('Address is required', 'warning'); return; }
+        if (chainType === 'evm' && !isValidEvmAddress(addr)) { toast('Invalid EVM address (expected 0x... 40 hex chars)', 'warning'); return; }
+        if (chainType === 'solana' && !isValidSolAddress(addr)) { toast('Invalid Solana address', 'warning'); return; }
+        if (wallets.some(w => w.address.toLowerCase() === addr.toLowerCase() && w.chainType === chainType)) {
+            toast('That wallet is already saved', 'warning'); return;
+        }
+        wallets.push({ id: 'w-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), label, address: addr, chainType });
+        saveWallets();
+        renderWalletList();
+        document.getElementById('walletLabelInput').value = '';
+        document.getElementById('walletAddressInput').value = '';
+        toast('Wallet added: ' + label, 'success');
+    }
+
+    function removeWallet(id) {
+        const w = wallets.find(x => x.id === id);
+        if (!w) return;
+        if (!confirm('Remove wallet "' + w.label + '"?')) return;
+        wallets = wallets.filter(x => x.id !== id);
+        saveWallets();
+        renderWalletList();
+    }
+
+    function renderWalletList() {
+        const c = document.getElementById('walletListContainer');
+        if (!c) return;
+        if (wallets.length === 0) {
+            c.innerHTML = '<div style="text-align:center;color:#666;font-size:0.8rem;padding:18px">No wallets saved yet. Add one above.</div>';
+            return;
+        }
+        c.innerHTML = wallets.map(w => {
+            const short = w.address.slice(0, 6) + '…' + w.address.slice(-4);
+            const badgeColor = w.chainType === 'solana' ? '#9945FF' : '#627EEA';
+            const badgeLabel = w.chainType === 'solana' ? 'SOL' : 'EVM';
+            return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px">' +
+                '<span style="background:' + badgeColor + '33;border:1px solid ' + badgeColor + ';color:' + badgeColor + ';font-size:0.6rem;padding:2px 6px;border-radius:6px;font-weight:600">' + badgeLabel + '</span>' +
+                '<div style="flex:1;min-width:0"><div style="font-weight:600;color:#e2e8f0;font-size:0.85rem">' + escapeHtml(w.label) + '</div>' +
+                '<div style="font-size:0.65rem;color:#888;font-family:monospace" title="' + escapeHtml(w.address) + '">' + escapeHtml(short) + '</div></div>' +
+                '<button onclick="copyToClipboard(\'' + escapeHtml(w.address) + '\')" title="Copy address" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#aaa;font-size:0.65rem;padding:4px 8px;cursor:pointer">Copy</button>' +
+                '<button onclick="removeWallet(\'' + w.id + '\')" title="Remove" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);border-radius:6px;color:#ef4444;font-size:0.65rem;padding:4px 8px;cursor:pointer">Remove</button>' +
+                '</div>';
+        }).join('');
+    }
+
+    function copyToClipboard(text) {
+        try { navigator.clipboard.writeText(text); toast('Copied', 'success'); } catch (e) { toast('Copy failed', 'warning'); }
+    }
+
+    // --- On-chain balance fetchers ---
+    function evmRpcFor(token) {
+        return EVM_RPC_URLS[token.chainId] || null;
+    }
+
+    function isNativeForChain(token) {
+        const list = NATIVE_SYMBOLS[token.chainId];
+        if (!list) return false;
+        const sym = (token.symbol || '').toUpperCase();
+        // Native = the chain's native symbol AND no real ERC20 contract address
+        return list.includes(sym) && !isRealAddress(token.address);
+    }
+
+    async function evmRpcCall(rpcUrl, method, params) {
+        const r = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (d.error) throw new Error(d.error.message || 'RPC error');
+        return d.result;
+    }
+
+    async function fetchEvmTokenBalance(walletAddr, contractAddr, rpcUrl) {
+        // ERC20 balanceOf(address) — selector 0x70a08231 + 32-byte left-padded address
+        const padded = walletAddr.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+        const data = '0x70a08231' + padded;
+        const result = await evmRpcCall(rpcUrl, 'eth_call', [{ to: contractAddr, data }, 'latest']);
+        if (!result || result === '0x') return 0n;
+        return BigInt(result);
+    }
+
+    async function fetchEvmNativeBalance(walletAddr, rpcUrl) {
+        const result = await evmRpcCall(rpcUrl, 'eth_getBalance', [walletAddr, 'latest']);
+        if (!result || result === '0x') return 0n;
+        return BigInt(result);
+    }
+
+    async function fetchEvmTokenDecimals(contractAddr, rpcUrl) {
+        // ERC20 decimals() — selector 0x313ce567, no args
+        const result = await evmRpcCall(rpcUrl, 'eth_call', [{ to: contractAddr, data: '0x313ce567' }, 'latest']);
+        if (!result || result === '0x') throw new Error('decimals() call failed');
+        return parseInt(result, 16);
+    }
+
+    async function fetchSolanaSplBalance(walletAddr, mintAddr) {
+        const body = { jsonrpc: '2.0', id: 1, method: 'getTokenAccountsByOwner', params: [walletAddr, { mint: mintAddr }, { encoding: 'jsonParsed' }] };
+        const r = await fetch(SOLANA_RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!r.ok) throw new Error('Solana RPC HTTP ' + r.status);
+        const d = await r.json();
+        if (d.error) throw new Error(d.error.message || 'Solana RPC error');
+        const accounts = d.result?.value || [];
+        // Sum uiAmount across all token accounts for this mint (already decimal-adjusted)
+        let total = 0;
+        for (const a of accounts) {
+            const ui = a.account?.data?.parsed?.info?.tokenAmount?.uiAmount;
+            if (typeof ui === 'number') total += ui;
+        }
+        return total;
+    }
+
+    async function fetchSolanaNativeBalance(walletAddr) {
+        const body = { jsonrpc: '2.0', id: 1, method: 'getBalance', params: [walletAddr] };
+        const r = await fetch(SOLANA_RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!r.ok) throw new Error('Solana RPC HTTP ' + r.status);
+        const d = await r.json();
+        if (d.error) throw new Error(d.error.message || 'Solana RPC error');
+        const lamports = d.result?.value || 0;
+        return lamports / Math.pow(10, NATIVE_DECIMALS.solana);
+    }
+
+    // Format amount for display: trim to 4 decimals, strip trailing zeros, add commas
+    function formatPulledAmount(n) {
+        if (!isFinite(n) || n === 0) return '0';
+        const fixed = n.toFixed(4);
+        const trimmed = fixed.replace(/\.?0+$/, '');
+        const [whole, frac] = trimmed.split('.');
+        const wholeFmt = Number(whole).toLocaleString();
+        return frac ? wholeFmt + '.' + frac : wholeFmt;
+    }
+
+    async function pullBalanceForToken(token) {
+        loadWallets();
+        if (wallets.length === 0) return { total: 0, breakdown: [], error: 'No wallets saved — add one in 🔑 Wallets first' };
+
+        const isSolanaToken = token.chainId === 'solana';
+        const native = isNativeForChain(token);
+        const breakdown = [];
+        let total = 0;
+        let queriedAny = false;
+
+        if (isSolanaToken) {
+            const solWallets = wallets.filter(w => w.chainType === 'solana');
+            if (solWallets.length === 0) return { total: 0, breakdown: [], error: 'No Solana wallets saved' };
+            for (const w of solWallets) {
+                queriedAny = true;
+                try {
+                    let amt;
+                    if (native || !isRealAddress(token.address)) {
+                        amt = await fetchSolanaNativeBalance(w.address);
+                    } else {
+                        amt = await fetchSolanaSplBalance(w.address, token.address);
+                    }
+                    if (amt > 0) { breakdown.push({ label: w.label, amount: amt }); total += amt; }
+                    await delay(200);
+                } catch (e) {
+                    breakdown.push({ label: w.label, amount: 0, error: e.message || 'failed' });
+                }
+            }
+        } else {
+            const rpcUrl = evmRpcFor(token);
+            if (!rpcUrl) return { total: 0, breakdown: [], error: 'Chain "' + (token.chainId || 'unknown') + '" is not supported for balance lookups' };
+            const evmWallets = wallets.filter(w => w.chainType === 'evm');
+            if (evmWallets.length === 0) return { total: 0, breakdown: [], error: 'No EVM wallets saved' };
+
+            // For ERC20: ensure we know decimals (cached on token after first fetch)
+            let decimals = null;
+            if (!native && isRealAddress(token.address)) {
+                if (typeof token.decimals === 'number' && token.decimals > 0) {
+                    decimals = token.decimals;
+                } else {
+                    try {
+                        decimals = await fetchEvmTokenDecimals(token.address, rpcUrl);
+                        if (decimals >= 0 && decimals < 36) {
+                            token.decimals = decimals;
+                            Store.save();
+                        }
+                    } catch (e) {
+                        return { total: 0, breakdown: [], error: 'Could not fetch token decimals: ' + (e.message || 'unknown') };
+                    }
+                    await delay(150);
+                }
+            }
+            const useDecimals = native ? 18 : decimals; // EVM native is always 18
+
+            for (const w of evmWallets) {
+                queriedAny = true;
+                try {
+                    let raw;
+                    if (native) {
+                        raw = await fetchEvmNativeBalance(w.address, rpcUrl);
+                    } else {
+                        raw = await fetchEvmTokenBalance(w.address, token.address, rpcUrl);
+                    }
+                    const amt = Number(raw) / Math.pow(10, useDecimals);
+                    if (amt > 0) { breakdown.push({ label: w.label, amount: amt }); total += amt; }
+                    await delay(150); // be polite to public RPCs
+                } catch (e) {
+                    breakdown.push({ label: w.label, amount: 0, error: e.message || 'failed' });
+                }
+            }
+        }
+
+        if (!queriedAny) return { total: 0, breakdown: [], error: 'No matching wallets for this chain' };
+        return { total, breakdown };
+    }
+
+    async function pullBalanceForEditInfo() {
+        if (editingIdx === null) return;
+        const t = portfolio[editingIdx];
+        if (t.assetType !== 'crypto' && t.assetType !== undefined) {
+            toast('Pull Balance only works for crypto', 'warning'); return;
+        }
+
+        const btn = document.getElementById('editInfoPullBalanceBtn');
+        const status = document.getElementById('editInfoPullBalanceStatus');
+        const origHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Checking…';
+        btn.style.opacity = '0.6';
+        if (status) { status.textContent = ''; status.style.color = '#888'; }
+
+        try {
+            const result = await pullBalanceForToken(t);
+            if (result.error) {
+                if (status) { status.textContent = result.error; status.style.color = '#ef4444'; }
+                return;
+            }
+            const nonZero = result.breakdown.filter(b => b.amount > 0);
+            if (nonZero.length === 0) {
+                if (status) { status.textContent = 'Token not found in any saved wallets'; status.style.color = '#f59e0b'; }
+                return;
+            }
+            // Auto-fill Amount
+            document.getElementById('editInfoAmount').value = result.total.toFixed(8).replace(/\.?0+$/, '');
+            // Build short breakdown line
+            const parts = nonZero.map(b => escapeHtml(b.label) + ': ' + formatPulledAmount(b.amount));
+            const totalStr = formatPulledAmount(result.total);
+            const breakdownHtml = parts.join(' &nbsp;|&nbsp; ') + ' &nbsp;|&nbsp; <strong style="color:#10b981">Total: ' + totalStr + '</strong>';
+            if (status) { status.innerHTML = breakdownHtml; status.style.color = '#aaa'; }
+        } catch (e) {
+            console.error('Pull balance error:', e);
+            if (status) { status.textContent = 'Failed: ' + (e.message || 'unknown'); status.style.color = '#ef4444'; }
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origHTML;
+            btn.style.opacity = '1';
+        }
     }
 
     // ============================================================
