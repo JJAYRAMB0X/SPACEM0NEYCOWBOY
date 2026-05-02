@@ -901,9 +901,9 @@
             <div class="glass-card input-section">
                 <div class="input-row">
                     <div class="input-group" style="flex:1; position:relative;">
-                        <label class="input-label">
-                            Token or Stock
-                            <span class="help-icon" onclick="showModal('helpModal')" title="Search tips">?</span>
+                        <label class="input-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span style="display:inline-flex;align-items:center;gap:8px">Token or Stock <span class="help-icon" onclick="showModal('helpModal')" title="Search tips">?</span></span>
+                            <span id="portfolioCount" style="font-size:0.65rem;color:#666;font-weight:400;letter-spacing:0"></span>
                         </label>
                         <input type="text" id="tokenInput" class="token-input" placeholder="Search token or ticker, paste contract..." autocomplete="off" style="width:100%">
                         <div class="autocomplete-dropdown" id="acDropdown"></div>
@@ -952,6 +952,7 @@
                     <button id="resetBtn" onclick="event.stopPropagation();resetAllFilters()" title="Reset filters" style="display:none;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.45);border-radius:8px;color:#ef4444;font-size:0.7rem;padding:4px 8px;cursor:pointer;margin-right:6px">🔄</button>
                     <button id="catValueFilterBtn" onclick="event.stopPropagation();toggleCatValueFilter()" title="Value filter: off" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#555;font-size:0.65rem;padding:4px 8px;cursor:pointer;margin-right:2px;min-width:24px">⊘</button>
                     <input id="catValueFilterInput" type="number" placeholder="$" oninput="event.stopPropagation();setCatValueFilterAmt(this.value)" style="display:none;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:0.65rem;padding:4px 6px;width:55px;margin-right:4px;-moz-appearance:textfield" />
+                    <button id="valueFilterSkipBtn" onclick="event.stopPropagation();toggleValueFilterSkip()" title="When ON, filtered-out tokens are skipped during Update All Prices and auto-update" style="display:none;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#666;font-size:0.6rem;padding:4px 6px;cursor:pointer;margin-right:4px;white-space:nowrap">🔄 off</button>
                     <button id="catSortBtn" onclick="event.stopPropagation();toggleCatSort()" title="Sort: by value" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#888;font-size:0.65rem;padding:4px 8px;cursor:pointer;margin-right:4px">$↓</button>
                     <button onclick="event.stopPropagation();showManageCatsModal()" title="Manage categories" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#888;font-size:0.75rem;padding:4px 8px;cursor:pointer;margin-right:8px">⚙️</button>
                     <div class="section-toggle collapsed" id="categoriesToggle" onclick="toggleSection('categories')" style="cursor:pointer">▼</div>
@@ -1721,6 +1722,7 @@ SOL,100</pre></div>
     let catSortMode = 'value'; // 'value' | 'alpha' — category bubble sort order
     let catValueFilterMode = localStorage.getItem(lsKey('catValueFilterMode')) || 'off'; // 'off' | '<' | '>'
     let catValueFilterAmt = parseFloat(localStorage.getItem(lsKey('catValueFilterAmt'))) || 0;
+    let valueFilterSkipUpdates = localStorage.getItem(lsKey('valueFilterSkipUpdates')) === 'true';
     let globalMarketData = null; // cached global stats from CoinGecko
     let bgChartData = null; // cached sparkline data points for background chart
     let screensaverActive = false;
@@ -2307,8 +2309,26 @@ SOL,100</pre></div>
         updateTotalValue();
         updateStats();
         updateCatTotals();
+        updatePortfolioCount();
         renderNetwork();
         renderGlobalStats();
+    }
+
+    // Subtle counter near the Token/Stock search label — always shows totals, ignores any value filter
+    function updatePortfolioCount() {
+        const el = document.getElementById('portfolioCount');
+        if (!el) return;
+        const counts = { crypto: 0, stock: 0, metal: 0, cash: 0 };
+        for (const t of portfolio) {
+            const k = t.assetType || 'crypto';
+            if (counts[k] !== undefined) counts[k]++;
+        }
+        const parts = [];
+        if (counts.crypto) parts.push(counts.crypto + ' token' + (counts.crypto !== 1 ? 's' : ''));
+        if (counts.stock)  parts.push(counts.stock  + ' stock' + (counts.stock  !== 1 ? 's' : ''));
+        if (counts.metal)  parts.push(counts.metal  + ' metal' + (counts.metal  !== 1 ? 's' : ''));
+        if (counts.cash)   parts.push(counts.cash   + ' cash');
+        el.textContent = parts.length === 0 ? '' : 'Currently tracking: ' + parts.join(', ');
     }
 
     // ============================================================
@@ -3801,6 +3821,7 @@ SOL,100</pre></div>
                 '<span style="background:' + badgeColor + '33;border:1px solid ' + badgeColor + ';color:' + badgeColor + ';font-size:0.6rem;padding:2px 6px;border-radius:6px;font-weight:600">' + badgeLabel + '</span>' +
                 '<div style="flex:1;min-width:0"><div style="font-weight:600;color:#e2e8f0;font-size:0.85rem">' + escapeHtml(w.label) + '</div>' +
                 '<div style="font-size:0.65rem;color:#888;font-family:monospace" title="' + escapeHtml(w.address) + '">' + escapeHtml(short) + '</div></div>' +
+                '<button onclick="startWalletScan(\'' + w.id + '\')" title="Scan only this wallet" style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);border-radius:6px;color:#00d4ff;font-size:0.65rem;padding:4px 8px;cursor:pointer;font-weight:600">🔍 Scan</button>' +
                 '<button onclick="copyToClipboard(\'' + escapeHtml(w.address) + '\')" title="Copy address" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#aaa;font-size:0.65rem;padding:4px 8px;cursor:pointer">Copy</button>' +
                 '<button onclick="removeWallet(\'' + w.id + '\')" title="Remove" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);border-radius:6px;color:#ef4444;font-size:0.65rem;padding:4px 8px;cursor:pointer">Remove</button>' +
                 '</div>';
@@ -4112,20 +4133,24 @@ SOL,100</pre></div>
         scanProgress('Cancelling…', 'Waiting for current step to finish');
     }
 
-    async function startWalletScan() {
+    async function startWalletScan(walletId) {
         if (walletScanState.running) return;
         loadWallets();
         if (wallets.length === 0) { toast('Add a wallet first', 'warning'); return; }
 
-        walletScanState = { running: true, cancelled: false, findings: [], solanaSplFailed: false };
+        // Scope: if walletId provided, scan only that wallet; otherwise scan all saved wallets
+        const target = walletId ? wallets.filter(w => w.id === walletId) : wallets;
+        if (target.length === 0) { toast('Wallet not found', 'warning'); return; }
+
+        walletScanState = { running: true, cancelled: false, findings: [], solanaSplFailed: false, scopeLabel: walletId ? target[0].label : null };
         closeModal('walletManagerModal');
         showModal('walletScanProgressModal');
-        scanProgress('Scanning your wallets…', 'Starting');
+        scanProgress(walletId ? ('Scanning ' + target[0].label + '…') : 'Scanning your wallets…', 'Starting');
 
         try {
             // === Phase 1: discover raw balances per wallet ===
-            const evmWallets = wallets.filter(w => w.chainType === 'evm');
-            const solWallets = wallets.filter(w => w.chainType === 'solana');
+            const evmWallets = target.filter(w => w.chainType === 'evm');
+            const solWallets = target.filter(w => w.chainType === 'solana');
             const allFindings = [];
 
             for (let i = 0; i < evmWallets.length; i++) {
@@ -4375,7 +4400,7 @@ SOL,100</pre></div>
                     f.action = 'noop';
                 } else {
                     f.status = 'diff';
-                    f.action = 'skip'; // default to no change for safety
+                    f.action = 'keep_portfolio'; // default to no change for safety
                 }
             }
         }
@@ -4394,13 +4419,16 @@ SOL,100</pre></div>
         const matches = visible.filter(f => f.status === 'match');
         const hiddenCount = findings.length - visible.length;
 
-        summaryEl.textContent = 'Scanned ' + wallets.length + ' wallet' + (wallets.length !== 1 ? 's' : '') +
+        const scope = walletScanState.scopeLabel
+            ? 'Scanned 1 wallet (' + walletScanState.scopeLabel + ')'
+            : 'Scanned ' + wallets.length + ' wallet' + (wallets.length !== 1 ? 's' : '');
+        summaryEl.textContent = scope +
             ' · ' + newOnes.length + ' new · ' + diffs.length + ' mismatch · ' + matches.length + ' matched' +
             (hiddenCount > 0 ? ' · ' + hiddenCount + ' hidden as dust' : '');
 
         const sections = [];
         if (newOnes.length > 0) sections.push(renderScanSection('🆕 New Tokens', '#10b981', 'rgba(16,185,129,0.08)', newOnes, 'new'));
-        if (diffs.length > 0) sections.push(renderScanSection('⚠️ Balance Mismatch', '#f59e0b', 'rgba(245,158,11,0.08)', diffs, 'diff'));
+        if (diffs.length > 0) sections.push(renderScanSection('⚠️ Balance Mismatch', '#ef4444', 'rgba(239,68,68,0.08)', diffs, 'diff'));
         if (matches.length > 0) sections.push(renderScanSection('✓ Already Tracked', '#6b7280', 'rgba(107,114,128,0.08)', matches, 'match'));
         if (sections.length === 0) sections.push('<div style="text-align:center;color:#888;padding:30px">Nothing to show. Try toggling "Show all including dust" if you have low-value tokens.</div>');
 
@@ -4449,13 +4477,12 @@ SOL,100</pre></div>
         const radioName = 'scan-action-' + findingIdx;
         const radio = (val, label) => {
             const sel = f.action === val ? 'checked' : '';
-            return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.7rem;color:#aaa"><input type="radio" name="' + radioName + '" ' + sel + ' onchange="setScanDiffAction(' + findingIdx + ',\'' + val + '\')" style="cursor:pointer;accent-color:#f59e0b">' + label + '</label>';
+            return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.7rem;color:#aaa"><input type="radio" name="' + radioName + '" ' + sel + ' onchange="setScanDiffAction(' + findingIdx + ',\'' + val + '\')" style="cursor:pointer;accent-color:#ef4444">' + label + '</label>';
         };
         return '<div style="display:flex;flex-direction:column;gap:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px">' +
             '<div style="display:flex;align-items:center;gap:10px">' + head + '</div>' +
             explain +
             '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
-                radio('skip', 'Skip') +
                 radio('keep_portfolio', 'Keep Portfolio') +
                 radio('use_wallet', 'Use Wallet Balance') +
             '</div>' +
@@ -4569,9 +4596,12 @@ SOL,100</pre></div>
 
         // === PHASE 1: DexScreener pass (fast, no rate limits) ===
         let autoSkipped = 0;
+        let filterSkipped = 0;
         for (const token of portfolio) {
             // Per-token auto-update is authoritative — skip in global pass to avoid double-fetches
             if (token.autoUpdate) { autoSkipped++; continue; }
+            // Skip tokens hidden by the value filter, when the user has opted in
+            if (valueFilterSkipUpdates && isFilteredOutByValueFilter(token)) { filterSkipped++; continue; }
             // Metals go to phase 4
             if (token.assetType === 'metal') { metalTokensToUpdate.push(token); continue; }
             // Cash — no price feed needed, skip entirely
@@ -4778,6 +4808,7 @@ SOL,100</pre></div>
         if (tdStockUpdated > 0) msg += ', ' + tdStockUpdated + ' stock' + (tdStockUpdated !== 1 ? 's' : '') + ' via TwelveData';
         if (metalUpdated > 0) msg += ', ' + metalUpdated + ' metal' + (metalUpdated !== 1 ? 's' : '') + ' via FreeGoldAPI';
         if (autoSkipped > 0) msg += ' (skipped ' + autoSkipped + ' on per-token auto)';
+        if (filterSkipped > 0) msg += ' (skipped ' + filterSkipped + ' filtered token' + (filterSkipped !== 1 ? 's' : '') + ')';
 
         if (finalFailed.length > 0) {
             msg += ', ' + finalFailed.length + ' failed';
@@ -5220,7 +5251,43 @@ SOL,100</pre></div>
             btn.textContent = catValueFilterMode; btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt; btn.style.color = '#00d4ff';
             if (inp) { inp.style.display = ''; inp.value = catValueFilterAmt || ''; inp.focus(); }
         }
+        syncValueFilterSkipBtn();
         renderNetwork(); updateStats();
+    }
+
+    function toggleValueFilterSkip() {
+        valueFilterSkipUpdates = !valueFilterSkipUpdates;
+        localStorage.setItem(lsKey('valueFilterSkipUpdates'), valueFilterSkipUpdates ? 'true' : 'false');
+        syncValueFilterSkipBtn();
+    }
+
+    function syncValueFilterSkipBtn() {
+        const btn = document.getElementById('valueFilterSkipBtn');
+        if (!btn) return;
+        // Only relevant when the filter is active
+        const active = catValueFilterMode !== 'off' && catValueFilterAmt > 0;
+        btn.style.display = active ? '' : 'none';
+        if (valueFilterSkipUpdates) {
+            btn.textContent = '🔄 skip';
+            btn.style.color = '#10b981';
+            btn.style.borderColor = 'rgba(16,185,129,0.5)';
+            btn.style.background = 'rgba(16,185,129,0.1)';
+            btn.title = 'Skip filtered tokens during Update All Prices (ON) — click to disable';
+        } else {
+            btn.textContent = '🔄 off';
+            btn.style.color = '#666';
+            btn.style.borderColor = 'rgba(255,255,255,0.15)';
+            btn.style.background = 'rgba(255,255,255,0.08)';
+            btn.title = 'When ON, filtered-out tokens are skipped during Update All Prices and auto-update';
+        }
+    }
+
+    // True when the value filter is active AND this token would be hidden by it
+    function isFilteredOutByValueFilter(token) {
+        if (catValueFilterMode === 'off' || !(catValueFilterAmt > 0)) return false;
+        const v = toCur(token.value || 0);
+        const wouldShow = catValueFilterMode === '<' ? v < catValueFilterAmt : v > catValueFilterAmt;
+        return !wouldShow;
     }
 
     function setCatValueFilterAmt(val) {
@@ -5228,6 +5295,7 @@ SOL,100</pre></div>
         localStorage.setItem(lsKey('catValueFilterAmt'), catValueFilterAmt);
         const btn = document.getElementById('catValueFilterBtn');
         if (btn && catValueFilterMode !== 'off') btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt;
+        syncValueFilterSkipBtn();
         renderNetwork(); updateStats();
     }
 
@@ -5238,6 +5306,7 @@ SOL,100</pre></div>
             if (btn) { btn.textContent = catValueFilterMode; btn.style.color = '#00d4ff'; btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt; }
             if (inp) { inp.style.display = ''; inp.value = catValueFilterAmt || ''; }
         }
+        syncValueFilterSkipBtn();
     }
 
     function updateResetBtn() { const b = document.getElementById('resetBtn'); if (b) b.style.display = (activeFilters.size > 0 || sortField || viewMode === 'regroup') ? '' : 'none'; }
