@@ -1440,8 +1440,59 @@ SOL,100</pre></div>
                 </div>
             </div>
             <div id="walletListContainer" style="max-height:260px;overflow-y:auto;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px"></div>
-            <div class="modal-actions">
+            <div class="modal-actions" style="justify-content:space-between">
+                <button class="btn btn-primary" id="scanWalletsBtn" onclick="startWalletScan()" title="Auto-discover all tokens in your wallets (Ethereum + Solana)">🔍 Scan Wallets</button>
                 <button class="btn btn-secondary" onclick="closeModal('walletManagerModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Scan: Progress Modal -->
+    <div class="modal-overlay" id="walletScanProgressModal">
+        <div class="modal" style="max-width:480px">
+            <div class="modal-title">🔍 Scanning Wallets</div>
+            <div class="modal-subtitle" id="walletScanProgressLabel">Discovering tokens across Ethereum and Solana…</div>
+            <div style="margin:20px 0;display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;align-items:center;gap:10px"><div class="spinner"></div><div id="walletScanProgressDetail" style="font-size:0.8rem;color:#aaa">Starting…</div></div>
+                <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;font-size:0.7rem;color:#888;line-height:1.5">This is read-only. Nothing changes in your portfolio until you review and confirm the results.</div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="walletScanCancelBtn" onclick="cancelWalletScan()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Scan: Results Modal -->
+    <div class="modal-overlay" id="walletScanResultsModal">
+        <div class="modal" style="max-width:760px;max-height:90vh;display:flex;flex-direction:column">
+            <div class="modal-title">🔍 Scan Results</div>
+            <div class="modal-subtitle" id="walletScanResultsSummary"></div>
+            <div style="display:flex;align-items:center;gap:10px;margin:8px 0 12px;font-size:0.7rem;color:#888">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                    <input type="checkbox" id="walletScanShowDust" onchange="renderWalletScanResults()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
+                    Show all including dust (under $3)
+                </label>
+            </div>
+            <div id="walletScanResultsContainer" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding-right:4px"></div>
+            <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
+                <button class="btn btn-secondary" onclick="closeModal('walletScanResultsModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="showWalletScanConfirm()">Review Changes →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Scan: Confirm Modal -->
+    <div class="modal-overlay" id="walletScanConfirmModal">
+        <div class="modal" style="max-width:480px">
+            <div class="modal-title">Apply Changes</div>
+            <div class="modal-subtitle">Review what will happen to your portfolio</div>
+            <div id="walletScanConfirmSummary" style="margin:18px 0;display:flex;flex-direction:column;gap:10px"></div>
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 12px;font-size:0.7rem;color:#f59e0b;line-height:1.5;margin-bottom:14px">
+                ⚠️ This will not delete any existing tokens from your portfolio. It only adds new tokens and optionally updates balances you've selected.
+            </div>
+            <div class="modal-actions" style="justify-content:space-between">
+                <button class="btn btn-secondary" onclick="closeModal('walletScanConfirmModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="applyWalletScanChanges()">Apply Changes</button>
             </div>
         </div>
     </div>
@@ -3635,6 +3686,11 @@ SOL,100</pre></div>
     // ============================================================
     // WALLET MANAGER + ON-CHAIN BALANCE LOOKUPS
     // ============================================================
+    // Etherscan V2 — only used for ERC-20 token discovery via `tokentx` on chainid=1 (Ethereum mainnet).
+    // Free tier is fine for that single chain. Per-chain balance reads use public RPCs below instead.
+    const ETHERSCAN_V2_BASE = 'https://api.etherscan.io/v2/api';
+    const ETHERSCAN_API_KEY = 'QUA3TQGNVJQCJ69N48YZADN3ICPD5FMITJ';
+
     // Per-chain public JSON-RPC endpoints — no API key needed, works for all chains.
     // (Etherscan V2's free tier only covers chainid=1; V1 standalone endpoints are deprecated.)
     // PublicNode endpoints are the primary; verified to support eth_getBalance + eth_call.
@@ -4005,6 +4061,483 @@ SOL,100</pre></div>
             btn.innerHTML = origHTML;
             btn.style.opacity = '1';
         }
+    }
+
+    // ============================================================
+    // WALLET SCAN — auto-discover tokens across saved wallets
+    // ============================================================
+    const SOLANA_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const SCAN_DUST_USD = 3;
+    // Solana RPCs that allow unfiltered getTokenAccountsByOwner (programId only)
+    const SOLANA_SCAN_RPCS = [
+        'https://api.mainnet-beta.solana.com',
+        'https://solana-mainnet.g.alchemy.com/v2/demo',
+    ];
+
+    let walletScanState = {
+        running: false,
+        cancelled: false,
+        findings: [], // discovered tokens with { walletLabel, walletAddress, source, address, symbol, name, decimals, balance, price, value, marketCap, logo, status: 'new'|'match'|'diff', portfolioMatch?: token, action?: 'add'|'use_wallet'|'keep_portfolio'|'skip' }
+    };
+
+    function scanProgress(label, detail) {
+        const lbl = document.getElementById('walletScanProgressLabel');
+        const det = document.getElementById('walletScanProgressDetail');
+        if (lbl && label) lbl.textContent = label;
+        if (det && detail) det.textContent = detail;
+    }
+
+    function cancelWalletScan() {
+        walletScanState.cancelled = true;
+        scanProgress('Cancelling…', 'Waiting for current step to finish');
+    }
+
+    async function startWalletScan() {
+        if (walletScanState.running) return;
+        loadWallets();
+        if (wallets.length === 0) { toast('Add a wallet first', 'warning'); return; }
+
+        walletScanState = { running: true, cancelled: false, findings: [] };
+        closeModal('walletManagerModal');
+        showModal('walletScanProgressModal');
+        scanProgress('Scanning your wallets…', 'Starting');
+
+        try {
+            // === Phase 1: discover raw balances per wallet ===
+            const evmWallets = wallets.filter(w => w.chainType === 'evm');
+            const solWallets = wallets.filter(w => w.chainType === 'solana');
+            const allFindings = [];
+
+            for (let i = 0; i < evmWallets.length; i++) {
+                if (walletScanState.cancelled) break;
+                const w = evmWallets[i];
+                scanProgress('Scanning Ethereum wallets', '(' + (i+1) + '/' + evmWallets.length + ') ' + w.label + ' — listing tokens…');
+                const found = await discoverEthAssets(w);
+                allFindings.push(...found);
+            }
+            for (let i = 0; i < solWallets.length; i++) {
+                if (walletScanState.cancelled) break;
+                const w = solWallets[i];
+                scanProgress('Scanning Solana wallets', '(' + (i+1) + '/' + solWallets.length + ') ' + w.label + ' — listing tokens…');
+                const found = await discoverSolanaAssets(w);
+                allFindings.push(...found);
+            }
+
+            if (walletScanState.cancelled) { closeModal('walletScanProgressModal'); walletScanState.running = false; return; }
+
+            // === Phase 2: enrich with prices via DexScreener ===
+            scanProgress('Looking up prices…', 'Fetching DexScreener metadata for ' + allFindings.length + ' tokens');
+            await enrichFindingsWithPrices(allFindings);
+            if (walletScanState.cancelled) { closeModal('walletScanProgressModal'); walletScanState.running = false; return; }
+
+            // === Phase 3: match against portfolio + categorize ===
+            scanProgress('Comparing to portfolio…', 'Matching by contract address');
+            categorizeDiscoveredTokens(allFindings);
+
+            walletScanState.findings = allFindings;
+            walletScanState.running = false;
+            closeModal('walletScanProgressModal');
+            renderWalletScanResults();
+            showModal('walletScanResultsModal');
+        } catch (e) {
+            console.error('[Scan] FAILED:', e);
+            walletScanState.running = false;
+            closeModal('walletScanProgressModal');
+            toast('Scan failed: ' + (e.message || 'unknown'), 'warning');
+        }
+    }
+
+    // --- ETH wallet discovery: native ETH + ERC-20 from tokentx ---
+    async function discoverEthAssets(wallet) {
+        const findings = [];
+        const ethRpc = EVM_RPC_URLS['ethereum'];
+
+        // 1) Native ETH balance
+        try {
+            const raw = await fetchEvmNativeBalance(wallet.address, ethRpc);
+            const amt = Number(raw) / 1e18;
+            if (amt > 0) {
+                findings.push({
+                    walletLabel: wallet.label, walletAddress: wallet.address,
+                    source: 'ethereum', chainId: 'ethereum',
+                    address: 'custom-eth-native-' + wallet.address.slice(2, 8).toLowerCase(),
+                    isNative: true,
+                    symbol: 'ETH', name: 'Ethereum', decimals: 18, balance: amt,
+                });
+            }
+        } catch (e) { console.warn('[Scan] native ETH for ' + wallet.label + ' failed:', e.message); }
+
+        // 2) ERC-20s via Etherscan V2 tokentx (chainid=1, free tier)
+        let txRows = [];
+        try {
+            const url = ETHERSCAN_V2_BASE + '?chainid=1&module=account&action=tokentx&address=' + wallet.address +
+                '&startblock=0&endblock=99999999&page=1&offset=10000&sort=desc&apikey=' + ETHERSCAN_API_KEY;
+            const r = await fetch(url);
+            const d = await r.json();
+            if (Array.isArray(d.result)) txRows = d.result;
+            else if (d.message && d.message !== 'No transactions found') console.warn('[Scan] tokentx warn:', d.result || d.message);
+        } catch (e) { console.warn('[Scan] tokentx failed for ' + wallet.label + ':', e.message); }
+
+        // Dedupe by contract address; capture symbol/name/decimals from the row
+        const seen = new Map(); // addrLower -> { address, symbol, name, decimals }
+        for (const row of txRows) {
+            const addrLower = (row.contractAddress || '').toLowerCase();
+            if (!addrLower || seen.has(addrLower)) continue;
+            seen.set(addrLower, {
+                address: row.contractAddress,
+                symbol: row.tokenSymbol || '',
+                name: row.tokenName || '',
+                decimals: parseInt(row.tokenDecimal, 10) || 18,
+            });
+        }
+
+        // 3) For each unique contract, fetch current balance via public RPC
+        let idx = 0;
+        for (const meta of seen.values()) {
+            if (walletScanState.cancelled) break;
+            idx++;
+            scanProgress('Reading balances on Ethereum', wallet.label + ': ' + idx + '/' + seen.size + ' (' + (meta.symbol || meta.address.slice(0, 8)) + ')');
+            try {
+                const raw = await fetchEvmTokenBalance(wallet.address, meta.address, ethRpc);
+                const amt = Number(raw) / Math.pow(10, meta.decimals || 18);
+                if (amt > 0) {
+                    findings.push({
+                        walletLabel: wallet.label, walletAddress: wallet.address,
+                        source: 'ethereum', chainId: 'ethereum',
+                        address: meta.address, isNative: false,
+                        symbol: meta.symbol, name: meta.name || meta.symbol, decimals: meta.decimals,
+                        balance: amt,
+                    });
+                }
+            } catch (e) {
+                console.warn('[Scan] balanceOf ' + meta.symbol + ' failed:', e.message);
+            }
+            await delay(120); // be polite to the public RPC
+        }
+        return findings;
+    }
+
+    // Try each Solana scan RPC in order (only mainnet-beta-class endpoints support unfiltered programId)
+    async function solanaScanRpcCall(method, params) {
+        let lastErr = null;
+        for (const url of SOLANA_SCAN_RPCS) {
+            try {
+                const r = await fetch(url, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+                });
+                if (!r.ok) { lastErr = new Error(url + ' HTTP ' + r.status); continue; }
+                const d = await r.json();
+                if (d.error) { lastErr = new Error(url + ': ' + (d.error.message || 'rpc error')); continue; }
+                console.log('[ScanSol] used', url);
+                return d.result;
+            } catch (e) { lastErr = e; console.warn('[ScanSol] failed', url, e.message); }
+        }
+        throw lastErr || new Error('All Solana scan RPCs failed');
+    }
+
+    async function discoverSolanaAssets(wallet) {
+        const findings = [];
+
+        // 1) Native SOL
+        try {
+            const result = await solanaScanRpcCall('getBalance', [wallet.address]);
+            const sol = (result?.value || 0) / 1e9;
+            if (sol > 0) {
+                findings.push({
+                    walletLabel: wallet.label, walletAddress: wallet.address,
+                    source: 'solana', chainId: 'solana',
+                    address: 'custom-sol-native-' + wallet.address.slice(0, 6).toLowerCase(),
+                    isNative: true,
+                    symbol: 'SOL', name: 'Solana', decimals: 9, balance: sol,
+                });
+            }
+        } catch (e) { console.warn('[Scan] native SOL for ' + wallet.label + ' failed:', e.message); }
+
+        // 2) SPL tokens via getTokenAccountsByOwner (jsonParsed gives uiAmount + decimals + mint)
+        try {
+            scanProgress('Reading Solana balances', wallet.label + ': listing SPL accounts');
+            const result = await solanaScanRpcCall('getTokenAccountsByOwner',
+                [wallet.address, { programId: SOLANA_TOKEN_PROGRAM_ID }, { encoding: 'jsonParsed' }]);
+            const accounts = result?.value || [];
+            // A wallet can have multiple accounts per mint — sum them
+            const byMint = new Map();
+            for (const a of accounts) {
+                const info = a.account?.data?.parsed?.info;
+                if (!info?.mint) continue;
+                const ui = info.tokenAmount?.uiAmount;
+                if (typeof ui !== 'number' || ui <= 0) continue;
+                const dec = info.tokenAmount?.decimals ?? 0;
+                const prev = byMint.get(info.mint) || { mint: info.mint, balance: 0, decimals: dec };
+                prev.balance += ui;
+                byMint.set(info.mint, prev);
+            }
+            for (const v of byMint.values()) {
+                findings.push({
+                    walletLabel: wallet.label, walletAddress: wallet.address,
+                    source: 'solana', chainId: 'solana',
+                    address: v.mint, isNative: false,
+                    symbol: '', name: '', decimals: v.decimals,
+                    balance: v.balance,
+                });
+            }
+        } catch (e) {
+            console.warn('[Scan] SPL discovery failed for ' + wallet.label + ':', e.message);
+        }
+        return findings;
+    }
+
+    // Batch-enrich findings with DexScreener (price, marketCap, name/symbol/logo when missing)
+    async function enrichFindingsWithPrices(findings) {
+        // DexScreener allows up to 30 addresses per call
+        const CHUNK = 30;
+        for (let i = 0; i < findings.length; i += CHUNK) {
+            if (walletScanState.cancelled) return;
+            const chunk = findings.slice(i, i + CHUNK);
+            const addrs = chunk.map(f => f.address).filter(a => a && !a.startsWith('custom-')).join(',');
+            if (!addrs) {
+                // All native — set price separately
+                for (const f of chunk) { if (f.isNative) await fillNativePrice(f); }
+                continue;
+            }
+            try {
+                const r = await fetch('https://api.dexscreener.com/latest/dex/tokens/' + addrs);
+                const data = r.ok ? await r.json() : null;
+                const pairs = data?.pairs || [];
+                for (const f of chunk) {
+                    if (f.isNative) { await fillNativePrice(f); continue; }
+                    // Find best pair: matches our chain (ethereum/solana) and highest liquidity
+                    const matchChain = f.source === 'solana' ? 'solana' : 'ethereum';
+                    const candidates = pairs.filter(p => p.chainId === matchChain && (p.baseToken?.address || '').toLowerCase() === f.address.toLowerCase());
+                    if (candidates.length > 0) {
+                        const best = candidates.reduce((a, b) => (b.liquidity?.usd || 0) > (a.liquidity?.usd || 0) ? b : a);
+                        f.price = parseFloat(best.priceUsd) || 0;
+                        f.marketCap = best.marketCap || 0;
+                        f.liquidity = best.liquidity?.usd || 0;
+                        if (!f.symbol) f.symbol = best.baseToken?.symbol || '';
+                        if (!f.name) f.name = best.baseToken?.name || f.symbol;
+                        if (best.info?.imageUrl) f.logo = best.info.imageUrl;
+                    } else {
+                        f.price = 0; f.marketCap = 0; f.liquidity = 0;
+                        if (!f.symbol) f.symbol = f.address.slice(0, 6) + '…';
+                        if (!f.name) f.name = f.symbol;
+                    }
+                    f.value = (f.balance || 0) * (f.price || 0);
+                }
+            } catch (e) {
+                console.warn('[Scan] DexScreener batch failed:', e.message);
+                for (const f of chunk) { f.price = f.price || 0; f.value = (f.balance || 0) * (f.price || 0); if (f.isNative) await fillNativePrice(f); }
+            }
+            await delay(250); // rate limit courtesy
+        }
+    }
+
+    // Fill price for native ETH/SOL using a known CoinGecko id
+    async function fillNativePrice(f) {
+        try {
+            const geckoId = f.source === 'ethereum' ? 'ethereum' : 'solana';
+            const d = await fetchCoinGeckoById(geckoId);
+            f.price = d.price || 0;
+            f.marketCap = d.marketCap || 0;
+            if (d.logo && !f.logo) f.logo = d.logo;
+        } catch (e) { f.price = f.price || 0; }
+        f.value = (f.balance || 0) * (f.price || 0);
+    }
+
+    // Match each finding against the portfolio (by address + chain) and tag it new/match/diff
+    function categorizeDiscoveredTokens(findings) {
+        const tolerance = 0.001; // 0.1%
+        for (const f of findings) {
+            const matchToken = portfolio.find(t =>
+                (t.address || '').toLowerCase() === f.address.toLowerCase() &&
+                (t.chainId || '').toLowerCase() === f.chainId.toLowerCase()
+            );
+            if (!matchToken) {
+                f.status = 'new';
+                f.action = 'add'; // default checked
+            } else {
+                f.portfolioMatch = matchToken;
+                const a = Number(matchToken.amount) || 0;
+                const b = Number(f.balance) || 0;
+                const denom = Math.max(a, b);
+                const closeEnough = denom === 0 ? a === b : Math.abs(a - b) / denom < tolerance;
+                if (closeEnough) {
+                    f.status = 'match';
+                    f.action = 'noop';
+                } else {
+                    f.status = 'diff';
+                    f.action = 'skip'; // default to no change for safety
+                }
+            }
+        }
+    }
+
+    function renderWalletScanResults() {
+        const container = document.getElementById('walletScanResultsContainer');
+        const summaryEl = document.getElementById('walletScanResultsSummary');
+        if (!container) return;
+        const showDust = document.getElementById('walletScanShowDust')?.checked;
+        const findings = walletScanState.findings || [];
+        const visible = findings.filter(f => showDust || (f.value || 0) >= SCAN_DUST_USD);
+
+        const newOnes = visible.filter(f => f.status === 'new');
+        const diffs = visible.filter(f => f.status === 'diff');
+        const matches = visible.filter(f => f.status === 'match');
+        const hiddenCount = findings.length - visible.length;
+
+        summaryEl.textContent = 'Scanned ' + wallets.length + ' wallet' + (wallets.length !== 1 ? 's' : '') +
+            ' · ' + newOnes.length + ' new · ' + diffs.length + ' mismatch · ' + matches.length + ' matched' +
+            (hiddenCount > 0 ? ' · ' + hiddenCount + ' hidden as dust' : '');
+
+        const sections = [];
+        if (newOnes.length > 0) sections.push(renderScanSection('🆕 New Tokens', '#10b981', 'rgba(16,185,129,0.08)', newOnes, 'new'));
+        if (diffs.length > 0) sections.push(renderScanSection('⚠️ Balance Mismatch', '#f59e0b', 'rgba(245,158,11,0.08)', diffs, 'diff'));
+        if (matches.length > 0) sections.push(renderScanSection('✓ Already Tracked', '#6b7280', 'rgba(107,114,128,0.08)', matches, 'match'));
+        if (sections.length === 0) sections.push('<div style="text-align:center;color:#888;padding:30px">Nothing to show. Try toggling "Show all including dust" if you have low-value tokens.</div>');
+
+        container.innerHTML = sections.join('');
+    }
+
+    function renderScanSection(title, color, bg, items, kind) {
+        const rowsHtml = items.map((f, i) => renderScanRow(f, kind, walletScanState.findings.indexOf(f))).join('');
+        return '<div style="border:1px solid ' + color + '55;background:' + bg + ';border-radius:12px;padding:12px">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-weight:700;color:' + color + ';font-size:0.85rem">' + title + ' <span style="color:#888;font-weight:500">(' + items.length + ')</span></div>' +
+            '<div style="display:flex;flex-direction:column;gap:6px">' + rowsHtml + '</div>' +
+            '</div>';
+    }
+
+    function renderScanRow(f, kind, findingIdx) {
+        const value = f.value || 0;
+        const valStr = value > 0 ? ' (~$' + value.toLocaleString(undefined, { maximumFractionDigits: 2 }) + ')' : '';
+        const balStr = formatPulledAmount(f.balance);
+        const sym = escapeHtml(f.symbol || '?');
+        const name = escapeHtml(f.name || '');
+        const chainBadge = f.chainId === 'solana'
+            ? '<span style="background:#9945FF33;border:1px solid #9945FF;color:#c5a3ff;font-size:0.55rem;padding:1px 5px;border-radius:5px">SOL</span>'
+            : '<span style="background:#627EEA33;border:1px solid #627EEA;color:#9aaef5;font-size:0.55rem;padding:1px 5px;border-radius:5px">ETH</span>';
+        const wallet = '<span style="font-size:0.6rem;color:#666">' + escapeHtml(f.walletLabel) + '</span>';
+        const head = '<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">' +
+            chainBadge +
+            '<div style="flex:1;min-width:0"><div style="font-weight:600;color:#e2e8f0;font-size:0.85rem">' + sym + '<span style="color:#666;font-weight:500;font-size:0.7rem"> · ' + name + '</span></div>' +
+            '<div style="font-size:0.65rem;color:#888">' + balStr + ' ' + sym + valStr + ' &nbsp;·&nbsp; ' + wallet + '</div></div></div>';
+
+        if (kind === 'new') {
+            const checked = f.action === 'add' ? 'checked' : '';
+            return '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px;cursor:pointer">' +
+                '<input type="checkbox" ' + checked + ' onchange="toggleScanNewSelection(' + findingIdx + ', this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#10b981">' +
+                head +
+                '</label>';
+        }
+        if (kind === 'match') {
+            return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.02);border-radius:8px">' +
+                head +
+                '<span style="font-size:0.65rem;color:#10b981">✓ matches portfolio</span>' +
+                '</div>';
+        }
+        // diff: three radios
+        const portfolioAmt = formatPulledAmount(f.portfolioMatch?.amount || 0);
+        const explain = '<div style="font-size:0.65rem;color:#888;margin-top:2px">Portfolio: ' + portfolioAmt + ' ' + sym + ' · Wallet: ' + balStr + ' ' + sym + '</div>';
+        const radioName = 'scan-action-' + findingIdx;
+        const radio = (val, label) => {
+            const sel = f.action === val ? 'checked' : '';
+            return '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.7rem;color:#aaa"><input type="radio" name="' + radioName + '" ' + sel + ' onchange="setScanDiffAction(' + findingIdx + ',\'' + val + '\')" style="cursor:pointer;accent-color:#f59e0b">' + label + '</label>';
+        };
+        return '<div style="display:flex;flex-direction:column;gap:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:8px">' +
+            '<div style="display:flex;align-items:center;gap:10px">' + head + '</div>' +
+            explain +
+            '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+                radio('skip', 'Skip') +
+                radio('keep_portfolio', 'Keep Portfolio') +
+                radio('use_wallet', 'Use Wallet Balance') +
+            '</div>' +
+            '</div>';
+    }
+
+    function toggleScanNewSelection(idx, checked) {
+        const f = walletScanState.findings[idx];
+        if (f) f.action = checked ? 'add' : 'skip';
+    }
+    function setScanDiffAction(idx, val) {
+        const f = walletScanState.findings[idx];
+        if (f) f.action = val;
+    }
+
+    function showWalletScanConfirm() {
+        const findings = walletScanState.findings || [];
+        const showDust = document.getElementById('walletScanShowDust')?.checked;
+        const inScope = findings.filter(f => showDust || (f.value || 0) >= SCAN_DUST_USD);
+        const adding = inScope.filter(f => f.status === 'new' && f.action === 'add');
+        const updating = inScope.filter(f => f.status === 'diff' && f.action === 'use_wallet');
+        const skipping = inScope.filter(f => (f.status === 'new' && f.action !== 'add') || (f.status === 'diff' && f.action !== 'use_wallet'));
+
+        const sum = document.getElementById('walletScanConfirmSummary');
+        const line = (label, n, color) => '<div style="display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.04);border-left:3px solid ' + color + ';border-radius:6px"><span style="color:#ccc;font-size:0.85rem">' + label + '</span><span style="color:' + color + ';font-weight:600">' + n + '</span></div>';
+        sum.innerHTML =
+            line('Adding new tokens', adding.length, '#10b981') +
+            line('Updating balances', updating.length, '#f59e0b') +
+            line('No change to', skipping.length + inScope.filter(f => f.status === 'match').length, '#6b7280');
+
+        if (adding.length === 0 && updating.length === 0) { toast('Nothing selected to apply', 'info'); return; }
+        showModal('walletScanConfirmModal');
+    }
+
+    function applyWalletScanChanges() {
+        const findings = walletScanState.findings || [];
+        const showDust = document.getElementById('walletScanShowDust')?.checked;
+        const inScope = findings.filter(f => showDust || (f.value || 0) >= SCAN_DUST_USD);
+        let added = 0, updated = 0;
+
+        for (const f of inScope) {
+            if (f.status === 'new' && f.action === 'add') {
+                const tokenId = f.chainId + '-' + f.address.toLowerCase();
+                // Skip if this id was somehow already created during this loop
+                if (portfolio.some(t => t.id === tokenId)) continue;
+                const newToken = {
+                    id: tokenId,
+                    symbol: (f.symbol || '?').toUpperCase(),
+                    name: f.name || f.symbol || 'Unknown',
+                    amount: f.balance,
+                    price: f.price || 0,
+                    value: (f.balance || 0) * (f.price || 0),
+                    logo: f.logo || '',
+                    chainId: f.chainId,
+                    address: f.address,
+                    decimals: f.decimals,
+                    liquidity: f.liquidity || 0,
+                    volume24h: 0,
+                    priceChange24h: 0,
+                    marketCap: f.marketCap || 0,
+                    fdv: 0,
+                    notes: '',
+                    isCustom: false,
+                    coinGeckoId: f.isNative ? f.chainId : null,
+                    manualPrice: false,
+                    assetType: 'crypto',
+                };
+                portfolio.push(newToken);
+                // Auto-add to chain category + 'crypto' builtin
+                const chainCat = f.chainId;
+                if (!categories.has(chainCat)) categories.set(chainCat, { tokens: [], color: getCatColor(chainCat), type: 'chain' });
+                const cd = categories.get(chainCat);
+                if (!cd.tokens.includes(tokenId)) cd.tokens.push(tokenId);
+                if (categories.has('crypto')) {
+                    const cc = categories.get('crypto');
+                    if (!cc.tokens.includes(tokenId)) cc.tokens.push(tokenId);
+                }
+                added++;
+            } else if (f.status === 'diff' && f.action === 'use_wallet' && f.portfolioMatch) {
+                f.portfolioMatch.amount = f.balance;
+                f.portfolioMatch.value = f.balance * (f.portfolioMatch.price || f.price || 0);
+                updated++;
+            }
+        }
+
+        Store.save();
+        refreshAll();
+        closeModal('walletScanConfirmModal');
+        closeModal('walletScanResultsModal');
+        toast('Scan applied: +' + added + ' new, ' + updated + ' updated', 'success');
+        walletScanState = { running: false, cancelled: false, findings: [] };
     }
 
     // ============================================================
