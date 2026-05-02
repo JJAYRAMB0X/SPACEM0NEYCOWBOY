@@ -1140,6 +1140,7 @@
         <div class="modal">
             <div class="modal-title">Select Categories</div>
             <div class="modal-subtitle">For <span id="catModalToken"></span></div>
+            <div style="font-size:0.7rem;color:#888;margin:6px 0 10px;line-height:1.4">Chain selection is used for automated wallet balance checking — make sure the correct chain is selected.</div>
             <div id="catList"></div>
             <div style="border-top:1px solid rgba(255,255,255,0.1); padding-top:14px; margin-top:14px;">
                 <div style="display:flex; gap:8px; margin-bottom:8px;">
@@ -3648,7 +3649,15 @@ SOL,100</pre></div>
         'ink': 'https://rpc-gel.inkonchain.com',
         'avalanche': 'https://avalanche-c-chain-rpc.publicnode.com', 'avalanche-c': 'https://avalanche-c-chain-rpc.publicnode.com',
     };
-    const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+    // Cascading Solana RPC endpoints — tried in order until one succeeds.
+    // (api.mainnet-beta.solana.com sometimes 403s from browsers; user-suggested fallbacks first, then publicnode as safety net.)
+    const SOLANA_RPCS = [
+        'https://solana-mainnet.g.alchemy.com/v2/demo',
+        'https://rpc.ankr.com/solana',
+        'https://solana.public-rpc.com',
+        'https://solana-rpc.publicnode.com',
+        'https://api.mainnet-beta.solana.com',
+    ];
 
     // Native token decimals (used for native balance like ETH/BNB) — most EVM chains use 18, SOL uses 9
     const NATIVE_DECIMALS = { solana: 9 }; // EVM defaults to 18
@@ -3787,14 +3796,32 @@ SOL,100</pre></div>
         return parseInt(result, 16);
     }
 
+    // Try each Solana RPC in sequence; first one that returns valid JSON wins
+    async function solanaRpcCall(method, params) {
+        let lastErr = null;
+        for (const url of SOLANA_RPCS) {
+            try {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+                });
+                if (!r.ok) { lastErr = new Error(url + ' HTTP ' + r.status); continue; }
+                const d = await r.json();
+                if (d.error) { lastErr = new Error(url + ': ' + (d.error.message || 'rpc error')); continue; }
+                console.log('[Solana] used', url);
+                return d.result;
+            } catch (e) {
+                lastErr = e;
+                console.warn('[Solana] failed', url, e.message);
+            }
+        }
+        throw lastErr || new Error('All Solana RPCs failed');
+    }
+
     async function fetchSolanaSplBalance(walletAddr, mintAddr) {
-        const body = { jsonrpc: '2.0', id: 1, method: 'getTokenAccountsByOwner', params: [walletAddr, { mint: mintAddr }, { encoding: 'jsonParsed' }] };
-        const r = await fetch(SOLANA_RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        if (!r.ok) throw new Error('Solana RPC HTTP ' + r.status);
-        const d = await r.json();
-        if (d.error) throw new Error(d.error.message || 'Solana RPC error');
-        const accounts = d.result?.value || [];
-        // Sum uiAmount across all token accounts for this mint (already decimal-adjusted)
+        const result = await solanaRpcCall('getTokenAccountsByOwner', [walletAddr, { mint: mintAddr }, { encoding: 'jsonParsed' }]);
+        const accounts = result?.value || [];
         let total = 0;
         for (const a of accounts) {
             const ui = a.account?.data?.parsed?.info?.tokenAmount?.uiAmount;
@@ -3804,19 +3831,15 @@ SOL,100</pre></div>
     }
 
     async function fetchSolanaNativeBalance(walletAddr) {
-        const body = { jsonrpc: '2.0', id: 1, method: 'getBalance', params: [walletAddr] };
-        const r = await fetch(SOLANA_RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        if (!r.ok) throw new Error('Solana RPC HTTP ' + r.status);
-        const d = await r.json();
-        if (d.error) throw new Error(d.error.message || 'Solana RPC error');
-        const lamports = d.result?.value || 0;
+        const result = await solanaRpcCall('getBalance', [walletAddr]);
+        const lamports = result?.value || 0;
         return lamports / Math.pow(10, NATIVE_DECIMALS.solana);
     }
 
-    // Format amount for display: trim to 4 decimals, strip trailing zeros, add commas
+    // Format amount for Edit Info display: up to 2 decimals, strip trailing zeros, add commas
     function formatPulledAmount(n) {
         if (!isFinite(n) || n === 0) return '0';
-        const fixed = n.toFixed(4);
+        const fixed = n.toFixed(2);
         const trimmed = fixed.replace(/\.?0+$/, '');
         const [whole, frac] = trimmed.split('.');
         const wholeFmt = Number(whole).toLocaleString();
@@ -3967,8 +3990,8 @@ SOL,100</pre></div>
                 }
                 return;
             }
-            // Auto-fill Amount
-            document.getElementById('editInfoAmount').value = result.total.toFixed(8).replace(/\.?0+$/, '');
+            // Auto-fill Amount — round to 2 decimals max
+            document.getElementById('editInfoAmount').value = result.total.toFixed(2).replace(/\.?0+$/, '');
             // Build short breakdown line
             const parts = nonZero.map(b => escapeHtml(b.label) + ': ' + formatPulledAmount(b.amount));
             const totalStr = formatPulledAmount(result.total);
@@ -5077,7 +5100,7 @@ SOL,100</pre></div>
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.symbol; node.appendChild(lbl);
         const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
         const amtSuffix = token.assetType === 'metal' ? ' oz' : token.assetType === 'stock' ? ' shares' : '';
-        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Number(token.amount).toLocaleString(undefined, { maximumFractionDigits: 4 }) + amtSuffix; node.appendChild(amt);
+        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Math.ceil(Number(token.amount) || 0).toLocaleString() + amtSuffix; node.appendChild(amt);
 
         // Market cap
         if (token.marketCap > 0) {
@@ -5150,7 +5173,7 @@ SOL,100</pre></div>
         // Labels
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.symbol; node.appendChild(lbl);
         const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
-        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Number(token.amount).toLocaleString(undefined, { maximumFractionDigits: 4 }) + ' shares'; node.appendChild(amt);
+        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Math.ceil(Number(token.amount) || 0).toLocaleString() + ' shares'; node.appendChild(amt);
 
         if (token.marketCap > 0) {
             const mc = document.createElement('div'); mc.className = 'node-mcap'; mc.textContent = 'MC: ' + formatCompact(token.marketCap); node.appendChild(mc);
@@ -5284,7 +5307,7 @@ SOL,100</pre></div>
         // Labels
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.symbol; node.appendChild(lbl);
         const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
-        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Number(token.amount).toLocaleString(undefined, { maximumFractionDigits: 4 }) + ' oz'; node.appendChild(amt);
+        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Math.ceil(Number(token.amount) || 0).toLocaleString() + ' oz'; node.appendChild(amt);
 
         // Events
         const pIdx = portfolio.indexOf(token);
@@ -5377,7 +5400,7 @@ SOL,100</pre></div>
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.name; node.appendChild(lbl);
         const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
         const nativeSym = isCAD ? 'C$' : '$';
-        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = nativeSym + Number(token.amount).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); node.appendChild(amt);
+        const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = nativeSym + Math.ceil(Number(token.amount) || 0).toLocaleString(); node.appendChild(amt);
 
         // Events
         const pIdx = portfolio.indexOf(token);
