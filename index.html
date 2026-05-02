@@ -950,6 +950,7 @@
                         <div class="section-title"><span>📊</span><span>Categories</span></div>
                     </div>
                     <button id="resetBtn" onclick="event.stopPropagation();resetAllFilters()" title="Reset filters" style="display:none;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.45);border-radius:8px;color:#ef4444;font-size:0.7rem;padding:4px 8px;cursor:pointer;margin-right:6px">🔄</button>
+                    <span id="valueFilterHiddenCount" style="display:none;font-size:0.6rem;color:#888;margin-right:6px;white-space:nowrap"></span>
                     <button id="catValueFilterBtn" onclick="event.stopPropagation();toggleCatValueFilter()" title="Value filter: off" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#555;font-size:0.65rem;padding:4px 8px;cursor:pointer;margin-right:2px;min-width:24px">⊘</button>
                     <input id="catValueFilterInput" type="number" placeholder="$" oninput="event.stopPropagation();setCatValueFilterAmt(this.value)" style="display:none;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:0.65rem;padding:4px 6px;width:55px;margin-right:4px;-moz-appearance:textfield" />
                     <button id="valueFilterSkipBtn" onclick="event.stopPropagation();toggleValueFilterSkip()" title="When ON, filtered-out tokens are skipped during Update All Prices and auto-update" style="display:none;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#666;font-size:0.6rem;padding:4px 6px;cursor:pointer;margin-right:4px;white-space:nowrap">🔄 off</button>
@@ -1719,7 +1720,7 @@ SOL,100</pre></div>
     let sunDragLastY = 0;
     let currencyMode = localStorage.getItem(lsKey('currencyMode')) || 'usd'; // persisted across reloads
     let cadRate = null; // USD→CAD exchange rate, fetched once on load
-    let catSortMode = 'value'; // 'value' | 'alpha' — category bubble sort order
+    let catSortMode = localStorage.getItem(lsKey('catSortMode')) || 'value'; // 'value' | 'alpha' — category bubble sort order
     let catValueFilterMode = localStorage.getItem(lsKey('catValueFilterMode')) || 'off'; // 'off' | '<' | '>'
     let catValueFilterAmt = parseFloat(localStorage.getItem(lsKey('catValueFilterAmt'))) || 0;
     let valueFilterSkipUpdates = localStorage.getItem(lsKey('valueFilterSkipUpdates')) === 'true';
@@ -1901,6 +1902,9 @@ SOL,100</pre></div>
         initDefaultCategories();
         setupResizer();
         initCatValueFilterUI();
+        // Sync category sort button to persisted mode
+        const csBtn = document.getElementById('catSortBtn');
+        if (csBtn) { csBtn.textContent = catSortMode === 'value' ? '$↓' : 'A-Z'; csBtn.title = catSortMode === 'value' ? 'Sort: by value' : 'Sort: A-Z'; }
         loadNftValue();
         loadNftValues();
         loadNFTs();
@@ -2310,6 +2314,7 @@ SOL,100</pre></div>
         updateStats();
         updateCatTotals();
         updatePortfolioCount();
+        syncValueFilterHiddenCount();
         renderNetwork();
         renderGlobalStats();
     }
@@ -5233,6 +5238,7 @@ SOL,100</pre></div>
 
     function toggleCatSort() {
         catSortMode = catSortMode === 'value' ? 'alpha' : 'value';
+        localStorage.setItem(lsKey('catSortMode'), catSortMode);
         const btn = document.getElementById('catSortBtn');
         if (btn) { btn.textContent = catSortMode === 'value' ? '$↓' : 'A-Z'; btn.title = catSortMode === 'value' ? 'Sort: by value' : 'Sort: A-Z'; }
         updateStats();
@@ -5252,6 +5258,7 @@ SOL,100</pre></div>
             if (inp) { inp.style.display = ''; inp.value = catValueFilterAmt || ''; inp.focus(); }
         }
         syncValueFilterSkipBtn();
+        syncValueFilterHiddenCount();
         renderNetwork(); updateStats();
     }
 
@@ -5272,13 +5279,13 @@ SOL,100</pre></div>
             btn.style.color = '#10b981';
             btn.style.borderColor = 'rgba(16,185,129,0.5)';
             btn.style.background = 'rgba(16,185,129,0.1)';
-            btn.title = 'Skip filtered tokens during Update All Prices (ON) — click to disable';
+            btn.title = 'Skip filtered tokens during price updates. Click to disable.';
         } else {
             btn.textContent = '🔄 off';
             btn.style.color = '#666';
             btn.style.borderColor = 'rgba(255,255,255,0.15)';
             btn.style.background = 'rgba(255,255,255,0.08)';
-            btn.title = 'When ON, filtered-out tokens are skipped during Update All Prices and auto-update';
+            btn.title = 'Price updates halted for filtered tokens. Click to enable.';
         }
     }
 
@@ -5290,12 +5297,25 @@ SOL,100</pre></div>
         return !wouldShow;
     }
 
+    // Subtle "N hidden" badge to the left of the filter operator — updates with the threshold
+    function syncValueFilterHiddenCount() {
+        const el = document.getElementById('valueFilterHiddenCount');
+        if (!el) return;
+        const active = catValueFilterMode !== 'off' && catValueFilterAmt > 0;
+        if (!active) { el.style.display = 'none'; el.textContent = ''; return; }
+        const hidden = portfolio.reduce((n, t) => n + (isFilteredOutByValueFilter(t) ? 1 : 0), 0);
+        if (hidden === 0) { el.style.display = 'none'; el.textContent = ''; return; }
+        el.style.display = '';
+        el.textContent = hidden + ' hidden';
+    }
+
     function setCatValueFilterAmt(val) {
         catValueFilterAmt = parseFloat(val) || 0;
         localStorage.setItem(lsKey('catValueFilterAmt'), catValueFilterAmt);
         const btn = document.getElementById('catValueFilterBtn');
         if (btn && catValueFilterMode !== 'off') btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt;
         syncValueFilterSkipBtn();
+        syncValueFilterHiddenCount();
         renderNetwork(); updateStats();
     }
 
@@ -5307,6 +5327,7 @@ SOL,100</pre></div>
             if (inp) { inp.style.display = ''; inp.value = catValueFilterAmt || ''; }
         }
         syncValueFilterSkipBtn();
+        syncValueFilterHiddenCount();
     }
 
     function updateResetBtn() { const b = document.getElementById('resetBtn'); if (b) b.style.display = (activeFilters.size > 0 || sortField || viewMode === 'regroup') ? '' : 'none'; }
