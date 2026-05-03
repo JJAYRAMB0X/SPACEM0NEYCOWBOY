@@ -5233,9 +5233,6 @@ SOL,100</pre></div>
 
     function resetAllFilters() {
         resetFiltersUI();
-        sortField = null; sortDir = 'desc'; viewMode = 'orbit';
-        document.querySelectorAll('.sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
-        document.getElementById('orbitBtn').classList.add('active');
         renderNetwork(); updateCatTotals(); updateResetBtn();
     }
 
@@ -5333,7 +5330,7 @@ SOL,100</pre></div>
         syncValueFilterHiddenCount();
     }
 
-    function updateResetBtn() { const b = document.getElementById('resetBtn'); if (b) b.style.display = (activeFilters.size > 0 || sortField) ? '' : 'none'; }
+    function updateResetBtn() { const b = document.getElementById('resetBtn'); if (b) b.style.display = (activeFilters.size > 0) ? '' : 'none'; }
 
     // ============================================================
     // SORTING
@@ -5366,14 +5363,13 @@ SOL,100</pre></div>
     }
 
     function activateRegroupMode() {
-        if (viewMode === 'regroup') return;
+        if (viewMode === 'regroup' && !sortField) return;
         viewMode = 'regroup';
-        // Preserve the user's previously-chosen sort. If none was set, the default alphabetical
-        // sort is applied silently in getFilteredTokens — no sort button gets highlighted.
-        if (!sortField) {
-            document.querySelectorAll('.sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
-            document.getElementById('regroupBtn').classList.add('active');
-        }
+        // Always clear any active sort so clicking Grid View returns to the default
+        // alphabetical sort applied silently in getFilteredTokens.
+        sortField = null; sortDir = 'desc';
+        document.querySelectorAll('.sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
+        document.getElementById('regroupBtn').classList.add('active');
         renderNetwork(); updateResetBtn();
     }
 
