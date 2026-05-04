@@ -3743,12 +3743,16 @@ SOL,100</pre></div>
         'avalanche': 'https://avalanche-c-chain-rpc.publicnode.com', 'avalanche-c': 'https://avalanche-c-chain-rpc.publicnode.com',
     };
     // Cascading Solana RPC endpoints — tried in order until one succeeds.
-    // (api.mainnet-beta.solana.com sometimes 403s from browsers; user-suggested fallbacks first, then publicnode as safety net.)
+    // publicnode is first because it was the only one consistently working for individual Pull Balance queries
+    // (Alchemy demo is CORS-blocked, Ankr 403s, public-rpc.com has cert issues from the browser).
+    // Helius is included here too for Pull Balance — the lightweight getTokenAccountBalance call is well within free tier.
     const SOLANA_RPCS = [
+        'https://solana-rpc.publicnode.com',
+        'https://beta.helius-rpc.com/?api-key=63104d80-60d3-4d53-be77-aeff94dabaae',
+        'https://mainnet.helius-rpc.com/?api-key=63104d80-60d3-4d53-be77-aeff94dabaae',
         'https://solana-mainnet.g.alchemy.com/v2/demo',
         'https://rpc.ankr.com/solana',
         'https://solana.public-rpc.com',
-        'https://solana-rpc.publicnode.com',
         'https://api.mainnet-beta.solana.com',
     ];
     // Helius — only used for the heavy `getTokenAccountsByOwner` programId query during scan.
