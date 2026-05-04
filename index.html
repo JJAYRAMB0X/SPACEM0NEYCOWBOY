@@ -3917,28 +3917,59 @@ SOL,100</pre></div>
                 ? [solanaPreferredRpc, ...SOLANA_RPCS.filter(u => u !== solanaPreferredRpc)]
                 : SOLANA_RPCS;
         }
-        let lastErr = null;
+        const attempts = []; // [{tag, outcome}] for the final summary
+        const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
+        console.log('[Solana] → ' + method, params);
         for (const url of ordered) {
             const tag = url.startsWith('https://') ? url.replace('https://', '').split('?')[0] : url;
             try {
                 const r = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+                    body
                 });
-                if (!r.ok) { lastErr = new Error(tag + ' HTTP ' + r.status); console.warn('[Solana] ' + method + ' ← ' + tag + ' HTTP ' + r.status); continue; }
-                const d = await r.json();
-                if (d.error) { lastErr = new Error(tag + ': ' + (d.error.message || 'rpc error')); console.warn('[Solana] ' + method + ' ← ' + tag + ' RPC err:', d.error.message); continue; }
-                console.log('[Solana] ' + method + ' ✓ ' + tag);
-                // Only update the session cache when running standard queries — we don't want Helius leaking into Pull Balance traffic.
+                if (!r.ok) {
+                    let respBody = '';
+                    try { respBody = (await r.text()).slice(0, 200); } catch (_) {}
+                    const outcome = 'HTTP ' + r.status + (respBody ? ' — ' + respBody.replace(/\s+/g, ' ').trim() : '');
+                    attempts.push({ tag, outcome });
+                    console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
+                    continue;
+                }
+                let d;
+                try { d = await r.json(); }
+                catch (parseErr) {
+                    const outcome = 'invalid JSON response (' + parseErr.message + ')';
+                    attempts.push({ tag, outcome });
+                    console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
+                    continue;
+                }
+                if (d.error) {
+                    const code = d.error.code != null ? ' [' + d.error.code + ']' : '';
+                    const outcome = 'RPC error' + code + ': ' + (d.error.message || 'unknown');
+                    attempts.push({ tag, outcome });
+                    console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
+                    continue;
+                }
+                console.log('[Solana] ✓ ' + tag);
                 if (!preferUrls) solanaPreferredRpc = url;
                 return d.result;
             } catch (e) {
-                lastErr = e;
-                console.warn('[Solana] ' + method + ' ← ' + tag + ' threw:', e.message);
+                // TypeError "Failed to fetch" almost always = CORS preflight rejection or DNS/cert failure.
+                // Browsers intentionally hide the underlying reason for cross-origin safety.
+                const isFailedFetch = e.name === 'TypeError' && /fetch/i.test(e.message || '');
+                const outcome = isFailedFetch
+                    ? 'fetch blocked (likely CORS, cert error, or network) — ' + e.message
+                    : (e.name || 'Error') + ': ' + (e.message || 'unknown');
+                attempts.push({ tag, outcome });
+                console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
             }
         }
-        throw lastErr || new Error('All Solana RPCs failed');
+        const summary = attempts.map(a => '• ' + a.tag + ': ' + a.outcome).join('\n');
+        console.error('[Solana] ALL ' + attempts.length + ' endpoint(s) failed for ' + method + ':\n' + summary);
+        const err = new Error('All ' + attempts.length + ' Solana RPC endpoints failed for ' + method + '. See console for per-endpoint reasons.');
+        err.attempts = attempts;
+        throw err;
     }
 
     async function fetchSolanaSplBalance(walletAddr, mintAddr) {
