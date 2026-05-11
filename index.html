@@ -803,6 +803,22 @@
         }
         .ss-wp-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
         .ss-wp-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
+        .ss-sort-controls {
+            position: absolute; left: 12px; top: 96px; z-index: 60;
+            display: flex; flex-direction: column; gap: 4px;
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px; padding: 5px;
+        }
+        .ss-sort-row { display: flex; gap: 3px; }
+        .ss-sort-btn {
+            flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; padding: 4px 8px; color: rgba(255,255,255,0.5);
+            font-size: 0.7rem; font-weight: 600; cursor: pointer; transition: all 0.3s;
+            min-width: 30px; text-align: center; font-family: inherit;
+        }
+        .ss-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
+        .ss-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
+        .screensaver.ss-nft-only .ss-sort-controls { display: none; }
         .ss-nft-toggle-btn {
             position: fixed; left: 12px; bottom: 60px; z-index: 100001;
             background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
@@ -1670,6 +1686,18 @@ SOL,100</pre></div>
             <div id="ssPortfolioValue" style="position:absolute;bottom:48px;left:50%;transform:translateX(-50%);font-size:1.4rem;font-weight:700;color:rgba(255,255,255,0.12);letter-spacing:1px;pointer-events:none;white-space:nowrap"></div>
             <div class="ss-watermark">Space Money Cowboy</div>
             <button class="ss-wp-btn" id="ssWinterPlanetBtn" onclick="event.stopPropagation(); toggleWinterPlanet()">❄️ Winter Planet</button>
+            <div class="ss-sort-controls" id="ssSortControls">
+                <div class="ss-sort-row">
+                    <button class="ss-sort-btn active" data-ss-view="orbit" onclick="event.stopPropagation(); ssActivateOrbitMode()" title="Solar System View">🪐</button>
+                    <button class="ss-sort-btn" data-ss-view="regroup" onclick="event.stopPropagation(); ssActivateRegroupMode()" title="Grid View">⊞</button>
+                </div>
+                <div class="ss-sort-row">
+                    <button class="ss-sort-btn" data-ss-sort="marketCap" onclick="event.stopPropagation(); ssToggleSort('marketCap')" title="Sort by Market Cap">MC</button>
+                    <button class="ss-sort-btn" data-ss-sort="value" onclick="event.stopPropagation(); ssToggleSort('value')" title="Sort by Holdings">$</button>
+                    <button class="ss-sort-btn" data-ss-sort="whaleScore" onclick="event.stopPropagation(); ssToggleSort('whaleScore')" title="Sort by Whale Score">🐋</button>
+                    <button class="ss-sort-btn" data-ss-sort="priceChange" onclick="event.stopPropagation(); ssToggleSort('priceChange')" title="Sort by 24h Change">24h</button>
+                </div>
+            </div>
         </div>
         <button class="ss-nft-toggle-btn" id="ssNftToggleBtn" onclick="event.stopPropagation(); cycleSsNftState()">🖼️ NFT Panel</button>
         <div class="ss-esc-hint" id="ssEscHint">Press ESC to exit</div>
@@ -5420,6 +5448,23 @@ SOL,100</pre></div>
         renderNetwork(); updateResetBtn();
     }
 
+    function syncSsSortButtons() {
+        const root = document.getElementById('ssSortControls');
+        if (!root) return;
+        root.querySelectorAll('.ss-sort-btn').forEach(b => b.classList.remove('active'));
+        if (sortField) {
+            const btn = root.querySelector('.ss-sort-btn[data-ss-sort="' + sortField + '"]');
+            if (btn) btn.classList.add('active');
+        } else {
+            const v = viewMode === 'regroup' ? 'regroup' : 'orbit';
+            const btn = root.querySelector('.ss-sort-btn[data-ss-view="' + v + '"]');
+            if (btn) btn.classList.add('active');
+        }
+    }
+    function ssToggleSort(field) { toggleSort(field); renderScreensaverPlanets(); syncSsSortButtons(); }
+    function ssActivateOrbitMode() { activateOrbitMode(); renderScreensaverPlanets(); syncSsSortButtons(); }
+    function ssActivateRegroupMode() { activateRegroupMode(); renderScreensaverPlanets(); syncSsSortButtons(); }
+
     // ============================================================
     // NETWORK VISUALIZATION
     // ============================================================
@@ -6843,6 +6888,7 @@ SOL,100</pre></div>
             ssGs.innerHTML = gs.innerHTML;
             ssGs.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
             if (gs.classList.contains('loaded')) ssGs.classList.add('loaded');
+            syncSsSortButtons();
         }); });
     }
 
@@ -7322,6 +7368,7 @@ SOL,100</pre></div>
             screensaverEl.appendChild(shareModeHintEl);
             // Auto fade out after 8 seconds with 2 second fade (transition set in CSS)
             setTimeout(() => { if (shareModeHintEl) dismissShareHint(); }, 8000);
+            syncSsSortButtons();
         }); });
     }
 
