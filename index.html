@@ -819,6 +819,22 @@
         .ss-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
         .ss-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
         .screensaver.ss-nft-only .ss-sort-controls { display: none; }
+        .coll-sort-controls {
+            position: absolute; left: 20px; top: 76px; z-index: 100;
+            display: none; flex-direction: column; gap: 4px;
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px; padding: 5px;
+        }
+        .left-column.collapsed ~ .right-column .coll-sort-controls { display: flex; }
+        .coll-sort-row { display: flex; gap: 3px; }
+        .coll-sort-btn {
+            flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; padding: 4px 8px; color: rgba(255,255,255,0.5);
+            font-size: 0.7rem; font-weight: 600; cursor: pointer; transition: all 0.3s;
+            min-width: 30px; text-align: center; font-family: inherit;
+        }
+        .coll-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
+        .coll-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
         .ss-nft-toggle-btn {
             position: fixed; left: 12px; bottom: 60px; z-index: 100001;
             background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
@@ -890,7 +906,7 @@
                 <div class="subtitle-row"><p class="subtitle">Dynamic Portfolio Builder</p><button class="info-btn-inline" onclick="openInfoWelcome()" title="About this app">?</button></div>
                 <div style="font-size:0.65rem;color:#555;letter-spacing:0.5px;margin-top:-4px;margin-bottom:4px">🖥 Desktop Experience</div>
                 <div class="ss-launch-row">
-                    <button class="ss-launch-btn" onclick="enterScreensaver()" title="Screensaver Mode (S)">🖥️ Screensaver</button>
+                    <button class="ss-launch-btn" onclick="enterScreensaver()" title="Does not work while price updates are on. Try the collapse panel button for a similar full-screen experience.">🖥️ Screensaver</button>
                     <div class="ss-mode-toggle" title="Fullscreen removes browser controls; Windowed keeps them visible">
                         <span class="ss-mode-opt active" id="ssModeFull" onclick="setSSMode('full')">Full</span>
                         <span class="ss-mode-opt" id="ssModeWindowed" onclick="setSSMode('windowed')">Window</span>
@@ -1096,10 +1112,22 @@
                 <span id="collapseIcon">◀</span>
                 <span class="btn-label" id="collapseLabel">Collapse</span>
             </button>
-            <button class="share-btn" id="shareBtn" onclick="openShareModal()" title="Share Mode">
+            <button class="share-btn" id="shareBtn" onclick="openShareModal()" title="Does not work while price updates are on. Try the collapse panel button for a similar full-screen experience.">
                 📸
                 <span class="btn-label">Share</span>
             </button>
+            <div class="coll-sort-controls" id="collapseSortControls">
+                <div class="coll-sort-row">
+                    <button class="coll-sort-btn active" data-coll-view="orbit" onclick="collActivateOrbitMode()" title="Solar System View">🪐</button>
+                    <button class="coll-sort-btn" data-coll-view="regroup" onclick="collActivateRegroupMode()" title="Grid View">⊞</button>
+                </div>
+                <div class="coll-sort-row">
+                    <button class="coll-sort-btn" data-coll-sort="marketCap" onclick="collToggleSort('marketCap')" title="Sort by Market Cap">MC</button>
+                    <button class="coll-sort-btn" data-coll-sort="value" onclick="collToggleSort('value')" title="Sort by Holdings">$</button>
+                    <button class="coll-sort-btn" data-coll-sort="whaleScore" onclick="collToggleSort('whaleScore')" title="Sort by Whale Score">🐋</button>
+                    <button class="coll-sort-btn" data-coll-sort="priceChange" onclick="collToggleSort('priceChange')" title="Sort by 24h Change">24h</button>
+                </div>
+            </div>
             <div class="network-container" id="networkContainer">
                 <div class="empty-state"><div class="icon">🌌</div><div>Add tokens to build your portfolio constellation</div></div>
             </div>
@@ -5461,9 +5489,26 @@ SOL,100</pre></div>
             if (btn) btn.classList.add('active');
         }
     }
-    function ssToggleSort(field) { toggleSort(field); renderScreensaverPlanets(); syncSsSortButtons(); }
-    function ssActivateOrbitMode() { activateOrbitMode(); renderScreensaverPlanets(); syncSsSortButtons(); }
-    function ssActivateRegroupMode() { activateRegroupMode(); renderScreensaverPlanets(); syncSsSortButtons(); }
+    function ssToggleSort(field) { toggleSort(field); renderScreensaverPlanets(); syncSsSortButtons(); syncCollapseSortButtons(); }
+    function ssActivateOrbitMode() { activateOrbitMode(); renderScreensaverPlanets(); syncSsSortButtons(); syncCollapseSortButtons(); }
+    function ssActivateRegroupMode() { activateRegroupMode(); renderScreensaverPlanets(); syncSsSortButtons(); syncCollapseSortButtons(); }
+
+    function syncCollapseSortButtons() {
+        const root = document.getElementById('collapseSortControls');
+        if (!root) return;
+        root.querySelectorAll('.coll-sort-btn').forEach(b => b.classList.remove('active'));
+        if (sortField) {
+            const btn = root.querySelector('.coll-sort-btn[data-coll-sort="' + sortField + '"]');
+            if (btn) btn.classList.add('active');
+        } else {
+            const v = viewMode === 'regroup' ? 'regroup' : 'orbit';
+            const btn = root.querySelector('.coll-sort-btn[data-coll-view="' + v + '"]');
+            if (btn) btn.classList.add('active');
+        }
+    }
+    function collToggleSort(field) { toggleSort(field); syncCollapseSortButtons(); syncSsSortButtons(); }
+    function collActivateOrbitMode() { activateOrbitMode(); syncCollapseSortButtons(); syncSsSortButtons(); }
+    function collActivateRegroupMode() { activateRegroupMode(); syncCollapseSortButtons(); syncSsSortButtons(); }
 
     // ============================================================
     // NETWORK VISUALIZATION
@@ -6219,6 +6264,7 @@ SOL,100</pre></div>
         const collapsed = lc.classList.contains('collapsed');
         document.getElementById('collapseIcon').textContent = collapsed ? '▶' : '◀';
         document.getElementById('collapseLabel').textContent = collapsed ? 'Expand' : 'Collapse';
+        if (collapsed) syncCollapseSortButtons();
         setTimeout(() => { renderNetwork(); drawBgChart(); }, 550);
     }
 
