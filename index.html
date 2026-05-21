@@ -2064,9 +2064,9 @@ SOL,100</pre></div>
     function startAutoUpdate() {
         if (autoUpdateInterval) return; // already running
         // Initial auto-update after a short delay to let the UI settle
-        setTimeout(() => { if (autoUpdateEnabled && portfolio.length > 0) updateAllPrices(); }, 500);
+        setTimeout(() => { if (autoUpdateEnabled && portfolio.length > 0) updateAllPrices(true); }, 500);
         // Re-run every 5 minutes
-        autoUpdateInterval = setInterval(() => { if (autoUpdateEnabled && portfolio.length > 0) updateAllPrices(); }, 5 * 60 * 1000);
+        autoUpdateInterval = setInterval(() => { if (autoUpdateEnabled && portfolio.length > 0) updateAllPrices(true); }, 5 * 60 * 1000);
     }
 
     function stopAutoUpdate() {
@@ -4691,7 +4691,7 @@ SOL,100</pre></div>
     let autoUpdateInterval = null;
     let autoUpdateEnabled = localStorage.getItem(lsKey('autoUpdate')) === 'true';
 
-    async function updateAllPrices() {
+    async function updateAllPrices(isAutoRefresh = false) {
         if (isUpdatingPrices) return; // prevent double-runs
         isUpdatingPrices = true;
         const btn = document.querySelector('.btn-success');
@@ -4706,8 +4706,10 @@ SOL,100</pre></div>
         let autoSkipped = 0;
         let filterSkipped = 0;
         for (const token of portfolio) {
-            // Per-token auto-update is authoritative — skip in global pass to avoid double-fetches
-            if (token.autoUpdate) { autoSkipped++; continue; }
+            // Per-token auto-update is authoritative during the AUTOMATIC portfolio-wide refresh —
+            // skip those tokens to avoid double-fetches. A MANUAL "Update All Prices" click updates
+            // everything, no exceptions.
+            if (isAutoRefresh && token.autoUpdate) { autoSkipped++; continue; }
             // Skip tokens hidden by the value filter, when the user has opted in
             if (valueFilterSkipUpdates && isFilteredOutByValueFilter(token)) { filterSkipped++; continue; }
             // Metals go to phase 4
