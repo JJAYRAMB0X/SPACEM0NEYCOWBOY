@@ -328,6 +328,10 @@
         .auto-updating .node-value,
         .auto-updating .node-amount,
         .auto-updating .node-mcap { color: #00ff88; text-shadow: 0 0 6px rgba(0,255,136,0.55); }
+        /* Paused state — dim the green to signal timers are temporarily stopped */
+        body.custom-auto-paused .auto-updating .node-value,
+        body.custom-auto-paused .auto-updating .node-amount,
+        body.custom-auto-paused .auto-updating .node-mcap { color: rgba(0,255,136,0.35); text-shadow: none; }
 
         /* Edit Info modal — Auto toggle controls */
         .edit-info-auto-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.65rem; color: #888; }
@@ -911,7 +915,8 @@
                         <span class="ss-mode-opt active" id="ssModeFull" onclick="setSSMode('full')">Full</span>
                         <span class="ss-mode-opt" id="ssModeWindowed" onclick="setSSMode('windowed')">Window</span>
                     </div>
-                    <button class="auto-update-btn" id="autoUpdateBtn" onclick="toggleAutoUpdate()" title="Auto-update prices on load and every 5 minutes">Auto Update Prices: OFF</button>
+                    <button class="auto-update-btn" id="autoUpdateBtn" onclick="toggleAutoUpdate()" title="Auto-update prices on load and every 5 minutes">Auto Update All Prices: OFF</button>
+                    <button class="auto-update-btn" id="customAutoUpdateBtn" onclick="toggleCustomAutoUpdate()" title="Pause/resume all per-token auto-update timers without losing their settings">Auto Update Custom Prices: ON</button>
                     <button class="auto-update-btn" id="hideValuesBtn" onclick="toggleHideValues()" title="Hide all portfolio values, holdings, totals and market cap">👁 Values: ON</button>
                 </div>
             </div>
@@ -2053,6 +2058,10 @@ SOL,100</pre></div>
         syncAutoUpdateBtn();
         if (autoUpdateEnabled) startAutoUpdate();
 
+        // Sync custom (per-token) auto-update pause/resume state.
+        // restoreAutoUpdateTimers below honors customAutoUpdatePaused — if paused, no timers start.
+        syncCustomAutoUpdateBtn();
+
         // Restart per-token auto-update timers for any tokens that had it enabled
         restoreAutoUpdateTimers();
 
@@ -2076,7 +2085,7 @@ SOL,100</pre></div>
     function syncAutoUpdateBtn() {
         const btn = document.getElementById('autoUpdateBtn');
         if (!btn) return;
-        btn.textContent = autoUpdateEnabled ? 'Auto Update Prices: ON' : 'Auto Update Prices: OFF';
+        btn.textContent = autoUpdateEnabled ? 'Auto Update All Prices: ON' : 'Auto Update All Prices: OFF';
         btn.classList.toggle('active', autoUpdateEnabled);
     }
 
@@ -2088,6 +2097,43 @@ SOL,100</pre></div>
             startAutoUpdate();
         } else {
             stopAutoUpdate();
+        }
+    }
+
+    // ============================================================
+    // CUSTOM (PER-TOKEN) AUTO-UPDATE PAUSE/RESUME
+    // ============================================================
+    // When paused, all per-token auto-update timers are stopped but each token's
+    // autoUpdate/autoUpdateInterval settings are preserved. Default = ON (not paused).
+    let customAutoUpdatePaused = localStorage.getItem(lsKey('customAutoPaused')) === 'true';
+
+    function syncCustomAutoUpdateBtn() {
+        const btn = document.getElementById('customAutoUpdateBtn');
+        if (!btn) return;
+        btn.textContent = customAutoUpdatePaused ? 'Auto Update Custom Prices: OFF' : 'Auto Update Custom Prices: ON';
+        btn.classList.toggle('active', !customAutoUpdatePaused);
+        document.body.classList.toggle('custom-auto-paused', customAutoUpdatePaused);
+    }
+
+    function pauseAllTokenAutoUpdates() {
+        tokenAutoTimers.forEach(id => clearInterval(id));
+        tokenAutoTimers.clear();
+    }
+
+    function resumeAllTokenAutoUpdates() {
+        portfolio.forEach(t => { if (t.autoUpdate && t.assetType !== 'cash') startTokenAutoUpdate(t); });
+    }
+
+    function toggleCustomAutoUpdate() {
+        customAutoUpdatePaused = !customAutoUpdatePaused;
+        localStorage.setItem(lsKey('customAutoPaused'), customAutoUpdatePaused ? 'true' : 'false');
+        syncCustomAutoUpdateBtn();
+        if (customAutoUpdatePaused) {
+            pauseAllTokenAutoUpdates();
+            toast('Per-token auto-updates paused', 'info');
+        } else {
+            resumeAllTokenAutoUpdates();
+            toast('Per-token auto-updates resumed', 'success');
         }
     }
 
@@ -3665,6 +3711,8 @@ SOL,100</pre></div>
     function startTokenAutoUpdate(token) {
         if (!token || token.assetType === 'cash') return;
         stopTokenAutoUpdate(token);
+        // Honor the global pause — the token keeps its autoUpdate=true setting, but no timer runs.
+        if (customAutoUpdatePaused) return;
         const minutes = Math.max(TOKEN_AUTO_MIN_MINUTES, Number(token.autoUpdateInterval) || TOKEN_AUTO_DEFAULT_MINUTES);
         const intervalMs = minutes * 60 * 1000;
         const tid = token.id;
@@ -6919,8 +6967,51 @@ SOL,100</pre></div>
         }
     }
 
+    // Snapshot of auto-update state before entering screensaver/share, used to restore on exit.
+    // Null means "no snapshot" (we are not currently inside a screensaver/share session).
+    let preScreensaverAutoState = null;
+
+    function suspendAutoUpdatesForScreensaver() {
+        if (preScreensaverAutoState) return; // already suspended
+        preScreensaverAutoState = {
+            autoUpdateEnabled: autoUpdateEnabled,
+            customAutoUpdatePaused: customAutoUpdatePaused,
+        };
+        // Stop portfolio-wide auto-update without persisting OFF
+        if (autoUpdateEnabled) {
+            autoUpdateEnabled = false;
+            stopAutoUpdate();
+            syncAutoUpdateBtn();
+        }
+        // Pause per-token timers without persisting paused
+        if (!customAutoUpdatePaused) {
+            customAutoUpdatePaused = true;
+            pauseAllTokenAutoUpdates();
+            syncCustomAutoUpdateBtn();
+        }
+    }
+
+    function restoreAutoUpdatesAfterScreensaver() {
+        if (!preScreensaverAutoState) return;
+        const prev = preScreensaverAutoState;
+        preScreensaverAutoState = null;
+        // Restore portfolio-wide auto-update
+        if (prev.autoUpdateEnabled && !autoUpdateEnabled) {
+            autoUpdateEnabled = true;
+            syncAutoUpdateBtn();
+            startAutoUpdate();
+        }
+        // Restore per-token timers
+        if (!prev.customAutoUpdatePaused && customAutoUpdatePaused) {
+            customAutoUpdatePaused = false;
+            syncCustomAutoUpdateBtn();
+            resumeAllTokenAutoUpdates();
+        }
+    }
+
     function enterScreensaver() {
         if (screensaverActive) return;
+        suspendAutoUpdatesForScreensaver();
         screensaverActive = true;
         document.body.style.overflow = 'hidden';
         applySsNftState();
@@ -6945,6 +7036,7 @@ SOL,100</pre></div>
         screensaverActive = false;
         document.body.style.overflow = '';
         if (shareModeActive) exitShareMode();
+        restoreAutoUpdatesAfterScreensaver();
         if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = null; }
         if (ssEscHintTimer) { clearTimeout(ssEscHintTimer); ssEscHintTimer = null; }
         stopWinterPlanet();
@@ -7372,6 +7464,7 @@ SOL,100</pre></div>
 
         // Enter screensaver (reuses existing system)
         if (screensaverActive) return;
+        suspendAutoUpdatesForScreensaver();
         screensaverActive = true;
         document.body.style.overflow = 'hidden';
 
