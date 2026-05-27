@@ -7468,6 +7468,12 @@ SOL,100</pre></div>
         screensaverActive = true;
         document.body.style.overflow = 'hidden';
 
+        // Share Mode's Hide Values toggle is INDEPENDENT of the main app's "Values" toggle.
+        // The main app applies `share-hide-values` to <body>; since the screensaver lives inside
+        // body, that class would bleed through and force values hidden even if Share Mode wants
+        // them shown. Strip it from body for the duration of Share Mode — restored in exitShareMode.
+        document.body.classList.remove('share-hide-values');
+
         // Add hide-values CSS class BEFORE rendering so all created elements are hidden
         const screensaverEl = document.getElementById('screensaver');
         if (shareModeHideValues) {
@@ -7518,6 +7524,9 @@ SOL,100</pre></div>
         document.getElementById('screensaver').classList.remove('share-hide-values', 'share-keep-change');
         shareModeActive = false;
         shareModeHideValues = false;
+        // Restore the main app's <body> Hide Values state (we stripped it on entry so Share Mode's
+        // toggle could be authoritative).
+        applyHideValues();
         // exitScreensaver handles all cleanup (restore NFT panel, re-render, exit fullscreen)
     }
 
