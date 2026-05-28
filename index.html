@@ -4008,31 +4008,54 @@ SOL,100</pre></div>
 
     // Per-session memory of which Solana endpoint worked last — try that one first next call
     let solanaPreferredRpc = null;
+    // Per-attempt timeout — long enough for a real cold-start TLS handshake, short enough to abandon a wedged endpoint.
+    const SOLANA_RPC_TIMEOUT_MS = 5000;
+    // After an endpoint fails (timeout, HTTP error, JSON error), avoid it for this long so concurrent and follow-up calls skip it.
+    const SOLANA_RPC_FAIL_COOLDOWN_MS = 30000;
+    const solanaRpcLastFailure = new Map(); // url -> timestamp of last failure
+    const solanaRpcInFlight = new Set();    // urls currently awaited by some call — concurrent callers demote these so they don't pile up on the same wedged endpoint
     // Try each Solana RPC in sequence; first one that returns valid JSON wins. Logs every attempt.
     // options.preferUrls — array of URLs to try BEFORE the standard fallback list (e.g. Helius for heavy queries).
     //                     When set, the session cache is bypassed (read + write) so callers can scope endpoint use per query.
     async function solanaRpcCall(method, params, options = {}) {
         const preferUrls = options.preferUrls || null;
+        const now = Date.now();
+        const recentlyFailed = (u) => {
+            const t = solanaRpcLastFailure.get(u);
+            return t && (now - t) < SOLANA_RPC_FAIL_COOLDOWN_MS;
+        };
         let ordered;
         if (preferUrls) {
             // Heavy-query mode: preferred URLs first, then standard publics as final fallback.
             ordered = [...preferUrls, ...SOLANA_RPCS.filter(u => !preferUrls.includes(u))];
         } else {
-            // Standard mode: session-preferred URL first (if any), then the rest of the publics.
-            ordered = solanaPreferredRpc
-                ? [solanaPreferredRpc, ...SOLANA_RPCS.filter(u => u !== solanaPreferredRpc)]
-                : SOLANA_RPCS;
+            // Standard mode: session-preferred URL first (if any and still healthy), then the rest of the publics.
+            const pref = (solanaPreferredRpc && !recentlyFailed(solanaPreferredRpc) && !solanaRpcInFlight.has(solanaPreferredRpc)) ? solanaPreferredRpc : null;
+            ordered = pref
+                ? [pref, ...SOLANA_RPCS.filter(u => u !== pref)]
+                : SOLANA_RPCS.slice();
         }
+        // Demote URLs that are in-flight on another call or recently failed — keep them as last resort instead of removing
+        // them, so a fully-degraded endpoint list still gets tried rather than throwing immediately.
+        ordered.sort((a, b) => {
+            const aBad = (solanaRpcInFlight.has(a) ? 1 : 0) + (recentlyFailed(a) ? 1 : 0);
+            const bBad = (solanaRpcInFlight.has(b) ? 1 : 0) + (recentlyFailed(b) ? 1 : 0);
+            return aBad - bBad;
+        });
         const attempts = []; // [{tag, outcome}] for the final summary
         const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
         console.log('[Solana] → ' + method, params);
         for (const url of ordered) {
             const tag = url.startsWith('https://') ? url.replace('https://', '').split('?')[0] : url;
+            solanaRpcInFlight.add(url);
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), SOLANA_RPC_TIMEOUT_MS);
             try {
                 const r = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body
+                    body,
+                    signal: ctrl.signal,
                 });
                 if (!r.ok) {
                     let respBody = '';
@@ -4040,6 +4063,8 @@ SOL,100</pre></div>
                     const outcome = 'HTTP ' + r.status + (respBody ? ' — ' + respBody.replace(/\s+/g, ' ').trim() : '');
                     attempts.push({ tag, outcome });
                     console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
+                    solanaRpcLastFailure.set(url, Date.now());
+                    if (solanaPreferredRpc === url) solanaPreferredRpc = null;
                     continue;
                 }
                 let d;
@@ -4048,6 +4073,8 @@ SOL,100</pre></div>
                     const outcome = 'invalid JSON response (' + parseErr.message + ')';
                     attempts.push({ tag, outcome });
                     console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
+                    solanaRpcLastFailure.set(url, Date.now());
+                    if (solanaPreferredRpc === url) solanaPreferredRpc = null;
                     continue;
                 }
                 if (d.error) {
@@ -4055,20 +4082,30 @@ SOL,100</pre></div>
                     const outcome = 'RPC error' + code + ': ' + (d.error.message || 'unknown');
                     attempts.push({ tag, outcome });
                     console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
+                    solanaRpcLastFailure.set(url, Date.now());
+                    if (solanaPreferredRpc === url) solanaPreferredRpc = null;
                     continue;
                 }
                 console.log('[Solana] ✓ ' + tag);
+                solanaRpcLastFailure.delete(url);
                 if (!preferUrls) solanaPreferredRpc = url;
                 return d.result;
             } catch (e) {
-                // TypeError "Failed to fetch" almost always = CORS preflight rejection or DNS/cert failure.
-                // Browsers intentionally hide the underlying reason for cross-origin safety.
+                // AbortError = our timeout fired. TypeError "Failed to fetch" almost always = CORS preflight rejection or DNS/cert failure.
+                const isAbort = e.name === 'AbortError';
                 const isFailedFetch = e.name === 'TypeError' && /fetch/i.test(e.message || '');
-                const outcome = isFailedFetch
-                    ? 'fetch blocked (likely CORS, cert error, or network) — ' + e.message
-                    : (e.name || 'Error') + ': ' + (e.message || 'unknown');
+                const outcome = isAbort
+                    ? 'timeout after ' + SOLANA_RPC_TIMEOUT_MS + 'ms'
+                    : isFailedFetch
+                        ? 'fetch blocked (likely CORS, cert error, or network) — ' + e.message
+                        : (e.name || 'Error') + ': ' + (e.message || 'unknown');
                 attempts.push({ tag, outcome });
                 console.log('[Solana] ✗ ' + tag + ' → ' + outcome);
+                solanaRpcLastFailure.set(url, Date.now());
+                if (solanaPreferredRpc === url) solanaPreferredRpc = null;
+            } finally {
+                clearTimeout(timer);
+                solanaRpcInFlight.delete(url);
             }
         }
         const summary = attempts.map(a => '• ' + a.tag + ': ' + a.outcome).join('\n');
