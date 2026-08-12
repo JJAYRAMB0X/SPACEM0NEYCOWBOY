@@ -998,7 +998,7 @@
                     <button id="catValueFilterBtn" onclick="event.stopPropagation();toggleCatValueFilter()" title="Value filter: off" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#555;font-size:0.65rem;padding:4px 8px;cursor:pointer;margin-right:2px;min-width:24px">⊘</button>
                     <input id="catValueFilterInput" type="number" placeholder="$" oninput="event.stopPropagation();setCatValueFilterAmt(this.value)" style="display:none;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:0.65rem;padding:4px 6px;width:48px;margin-right:3px;-moz-appearance:textfield" />
                     <input id="catValueFilterInput2" type="number" placeholder="$" oninput="event.stopPropagation();setCatValueFilterAmt2(this.value)" style="display:none;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;font-size:0.65rem;padding:4px 6px;width:48px;margin-right:4px;-moz-appearance:textfield" />
-                    <button id="valueFilterSkipBtn" onclick="event.stopPropagation();toggleValueFilterSkip()" title="When ON, filtered-out tokens are skipped during Update All Prices and auto-update" style="display:none;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#666;font-size:0.6rem;padding:4px 6px;cursor:pointer;margin-right:4px;white-space:nowrap">🔄 off</button>
+                    <button id="valueFilterSkipBtn" onclick="event.stopPropagation();toggleValueFilterSkip()" title="Which tokens Update All Prices fetches: all tokens, or only the ones this filter leaves visible" style="display:none;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#666;font-size:0.6rem;padding:4px 6px;cursor:pointer;margin-right:4px;white-space:nowrap">🔄 all tokens</button>
                     <button id="catSortBtn" onclick="event.stopPropagation();toggleCatSort()" title="Sort categories by portfolio value" style="display:none;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#888;font-size:0.65rem;padding:4px 8px;cursor:pointer;margin-right:4px">$↓</button>
                     <button onclick="event.stopPropagation();showManageCatsModal()" title="Manage categories" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:#888;font-size:0.75rem;padding:4px 8px;cursor:pointer;margin-right:8px">⚙️</button>
                     <div class="section-toggle collapsed" id="categoriesToggle" onclick="toggleSection('categories')" style="cursor:pointer">▼</div>
@@ -5550,18 +5550,19 @@ SOL,100</pre></div>
         // Only relevant when the filter is active
         const active = isValueFilterActive();
         btn.style.display = active ? '' : 'none';
+        // Label says WHICH tokens get price updates — no on/off state to mentally invert
         if (valueFilterSkipUpdates) {
-            btn.textContent = '🔄 skip';
+            btn.textContent = '🔄 visible only';
             btn.style.color = '#10b981';
             btn.style.borderColor = 'rgba(16,185,129,0.5)';
             btn.style.background = 'rgba(16,185,129,0.1)';
-            btn.title = 'Skip filtered tokens during price updates. Click to disable.';
+            btn.title = 'Update All Prices fetches ONLY the tokens shown. Hidden tokens keep their last known value, so one that spikes past the filter will NOT reappear. Click to update all tokens.';
         } else {
-            btn.textContent = '🔄 off';
+            btn.textContent = '🔄 all tokens';
             btn.style.color = '#666';
             btn.style.borderColor = 'rgba(255,255,255,0.15)';
             btn.style.background = 'rgba(255,255,255,0.08)';
-            btn.title = 'Price updates halted for filtered tokens. Click to enable.';
+            btn.title = 'Update All Prices fetches ALL tokens, including the ones this filter hides. A hidden token that spikes past the threshold will reappear. Click to fetch only visible tokens (fewer API calls).';
         }
     }
 
