@@ -302,6 +302,16 @@
 
         .network-node { position: absolute; cursor: pointer; transition: left 0.4s cubic-bezier(0.4,0,0.2,1), top 0.4s cubic-bezier(0.4,0,0.2,1), opacity 0.4s cubic-bezier(0.4,0,0.2,1); animation: nodeIn 0.5s ease; }
         @keyframes nodeIn { from { opacity: 0; transform: translate(-50%,-50%) scale(0); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
+
+        /* --- Multi-select: rubber-band sweep, selected ring, action bar --- */
+        .marquee-box { position: absolute; border: 1.5px dashed #00d4ff; background: rgba(0,212,255,0.10); border-radius: 4px; pointer-events: none; z-index: 60; }
+        .network-node.selected .node-core { border-color: #ff4d6d !important; box-shadow: 0 0 0 3px rgba(255,77,109,0.85), 0 0 26px rgba(255,77,109,0.6) !important; }
+        .network-node.selected::after { content: '✓'; position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; border-radius: 50%; background: #ff4d6d; color: #fff; font-size: 0.6rem; font-weight: bold; display: flex; align-items: center; justify-content: center; border: 2px solid #0a0a0a; z-index: 3; }
+        .selection-bar { display: none; position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); z-index: 200; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(12,12,18,0.95); border: 1px solid rgba(255,77,109,0.4); box-shadow: 0 6px 24px rgba(0,0,0,0.6); font-size: 0.75rem; color: #ddd; }
+        .selection-bar button { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #ccc; font-size: 0.7rem; padding: 5px 10px; cursor: pointer; }
+        .selection-bar button:hover { background: rgba(255,255,255,0.14); }
+        .selection-bar button.danger { background: rgba(255,77,109,0.15); border-color: rgba(255,77,109,0.5); color: #ff8fa3; }
+        .selection-bar button.danger:hover { background: rgba(255,77,109,0.28); }
         .node-core {
             width: var(--node-size, 80px); height: var(--node-size, 80px); border-radius: 50%;
             position: relative; overflow: hidden;
@@ -1157,7 +1167,17 @@
     <div class="ctx-menu" id="ctxMenu">
         <div class="ctx-item" onclick="openEditInfoModal()">✏️ Edit Info</div>
         <div class="ctx-item" onclick="manageCats()">🏷️ Manage Categories</div>
-        <div class="ctx-item danger" onclick="quickDelete()">🗑️ Delete</div>
+        <div class="ctx-item" id="ctxSelectAll" onclick="selectAllVisible()">☑️ Select all visible</div>
+        <div class="ctx-item danger" id="ctxDeleteSingle" onclick="quickDelete()">🗑️ Delete</div>
+        <div class="ctx-item danger" id="ctxDeleteSelected" style="display:none" onclick="bulkDeleteSelected()">🗑️ Delete selected</div>
+    </div>
+
+    <!-- Multi-select action bar -->
+    <div class="selection-bar" id="selectionBar">
+        <span id="selectionCount">0 selected</span>
+        <button onclick="selectAllVisible()">Select all visible</button>
+        <button class="danger" onclick="bulkDeleteSelected()">🗑️ Delete selected</button>
+        <button onclick="clearSelection()">Clear</button>
     </div>
 
     <!-- Category Tooltip -->
@@ -3420,6 +3440,18 @@ SOL,100</pre></div>
     function showCtxMenu(e, idx) {
         e.preventDefault();
         ctxIdx = idx;
+        // Right-clicking a token outside the current selection acts on that token
+        // alone — matches how file managers behave.
+        const t = portfolio[idx];
+        if (t && !selectedIds.has(String(t.id))) clearSelection();
+        const n = selectedIds.size;
+        const delSel = document.getElementById('ctxDeleteSelected');
+        const delOne = document.getElementById('ctxDeleteSingle');
+        if (delSel) {
+            delSel.style.display = n > 1 ? '' : 'none';
+            delSel.textContent = '🗑️ Delete ' + n + ' selected';
+        }
+        if (delOne) delOne.style.display = n > 1 ? 'none' : '';
         const menu = document.getElementById('ctxMenu');
         menu.style.left = e.pageX + 'px'; menu.style.top = e.pageY + 'px'; menu.style.display = 'block';
         e.stopPropagation();
@@ -5811,12 +5843,162 @@ SOL,100</pre></div>
         return 120 + 40 * Math.min((v - 50000) / 550000, 1);
     }
 
+    // ============================================================
+    // MULTI-SELECT — marquee sweep, ctrl+click, bulk delete
+    // Selection is keyed by token.id (as a string) so it survives the
+    // re-renders that price updates and filter changes trigger.
+    // ============================================================
+    let selectedIds = new Set();
+    let marqueeEl = null, marqueeActive = false, marqueeMoved = false;
+    let marqContainer = null, marqAdditive = false, marqBaseIds = null;
+    let marqStartClientX = 0, marqStartClientY = 0, marqStartLeft = 0, marqStartTop = 0;
+
+    function selectedTokens() {
+        if (!selectedIds.size) return [];
+        return portfolio.filter(t => selectedIds.has(String(t.id)));
+    }
+
+    function clearSelection() { selectedIds.clear(); syncSelectionUI(); }
+
+    // Everything the current filters leave on screen — the whole point of
+    // "filter to under $10, then sweep them all up".
+    function selectAllVisible() {
+        getFilteredTokens().forEach(t => selectedIds.add(String(t.id)));
+        syncSelectionUI();
+        const m = document.getElementById('ctxMenu'); if (m) m.style.display = 'none';
+    }
+
+    function syncSelectionUI() {
+        document.querySelectorAll('.network-node').forEach(n => {
+            const id = n.dataset.tokenId;
+            n.classList.toggle('selected', !!id && selectedIds.has(id));
+        });
+        const bar = document.getElementById('selectionBar');
+        if (!bar) return;
+        const toks = selectedTokens();
+        if (!toks.length) { bar.style.display = 'none'; return; }
+        const total = toks.reduce((s, t) => s + (t.value || 0), 0);
+        bar.style.display = 'flex';
+        document.getElementById('selectionCount').textContent =
+            toks.length + ' selected · ' + curSym() + toCur(total).toFixed(2);
+    }
+
+    // Called by every node creator so all four asset shapes behave the same
+    function tagSelectable(node, token) {
+        const id = String(token.id);
+        node.dataset.tokenId = id;
+        if (selectedIds.has(id)) node.classList.add('selected');
+        node.addEventListener('click', e => {
+            // Plain clicks stay free for the sun drag / dblclick-to-edit
+            if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+            e.preventDefault(); e.stopPropagation();
+            if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+            syncSelectionUI();
+        });
+    }
+
+    function bindMarquee(c) {
+        if (!c || c._marqueeBound) return;
+        c._marqueeBound = true;
+        c.addEventListener('mousedown', onMarqueeStart);
+    }
+
+    function onMarqueeStart(e) {
+        if (e.button !== 0) return;
+        if (screensaverActive) return;
+        const t = e.target;
+        if (t.closest('.network-node')) return; // node clicks and sun drag win
+        if (t.closest('.winter-planet, button, input, select, textarea, .ctx-menu, .modal, .selection-bar')) return;
+        marqContainer = e.currentTarget;
+        const r = marqContainer.getBoundingClientRect();
+        marqStartClientX = e.clientX; marqStartClientY = e.clientY;
+        marqStartLeft = e.clientX - r.left; marqStartTop = e.clientY - r.top;
+        marqAdditive = e.shiftKey || e.ctrlKey || e.metaKey;
+        marqBaseIds = marqAdditive ? new Set(selectedIds) : new Set();
+        marqueeActive = true; marqueeMoved = false;
+        e.preventDefault();
+    }
+
+    document.addEventListener('mousemove', function(e) {
+        if (!marqueeActive) return;
+        if (!marqueeMoved) {
+            // Small threshold so a plain click doesn't flash a box
+            if (Math.abs(e.clientX - marqStartClientX) < 5 && Math.abs(e.clientY - marqStartClientY) < 5) return;
+            marqueeMoved = true;
+            hideCatTooltip();
+            if (!marqueeEl) { marqueeEl = document.createElement('div'); marqueeEl.className = 'marquee-box'; }
+            marqContainer.appendChild(marqueeEl);
+        }
+        const r = marqContainer.getBoundingClientRect();
+        const curLeft = e.clientX - r.left, curTop = e.clientY - r.top;
+        marqueeEl.style.left = Math.min(marqStartLeft, curLeft) + 'px';
+        marqueeEl.style.top = Math.min(marqStartTop, curTop) + 'px';
+        marqueeEl.style.width = Math.abs(curLeft - marqStartLeft) + 'px';
+        marqueeEl.style.height = Math.abs(curTop - marqStartTop) + 'px';
+
+        // Recompute from scratch each frame (rather than accumulating) so
+        // shrinking the box drops tokens back out — live preview while sweeping.
+        const bl = Math.min(marqStartClientX, e.clientX), br = Math.max(marqStartClientX, e.clientX);
+        const bt = Math.min(marqStartClientY, e.clientY), bb = Math.max(marqStartClientY, e.clientY);
+        selectedIds = new Set(marqBaseIds);
+        marqContainer.querySelectorAll('.network-node').forEach(node => {
+            const id = node.dataset.tokenId;
+            if (!id) return;
+            // Hit-test the visible circle, not the node box (which includes labels)
+            const hit = node.querySelector('.node-core') || node;
+            const nr = hit.getBoundingClientRect();
+            if (nr.right >= bl && nr.left <= br && nr.bottom >= bt && nr.top <= bb) selectedIds.add(id);
+        });
+        syncSelectionUI();
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!marqueeActive) return;
+        marqueeActive = false;
+        if (marqueeEl && marqueeEl.parentNode) marqueeEl.parentNode.removeChild(marqueeEl);
+        // A plain click on empty space clears the selection
+        if (!marqueeMoved && !marqAdditive && selectedIds.size) clearSelection();
+        marqueeMoved = false;
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (!selectedIds.size) return;
+        const tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (e.key === 'Escape') clearSelection();
+        else if (e.key === 'Delete') { e.preventDefault(); bulkDeleteSelected(); }
+    });
+
+    function bulkDeleteSelected() {
+        const m = document.getElementById('ctxMenu'); if (m) m.style.display = 'none';
+        const toks = selectedTokens();
+        if (!toks.length) return;
+        const total = toks.reduce((s, t) => s + (t.value || 0), 0);
+        const syms = toks.slice(0, 15).map(t => t.symbol).join(', ') +
+            (toks.length > 15 ? ', +' + (toks.length - 15) + ' more' : '');
+        if (!confirm('Delete ' + toks.length + ' token' + (toks.length !== 1 ? 's' : '') + '?\n\n' + syms +
+            '\n\nCombined value: ' + curSym() + toCur(total).toFixed(2) + '\n\nThis cannot be undone.')) return;
+
+        const idSet = new Set(toks.map(t => String(t.id)));
+        toks.forEach(t => stopTokenAutoUpdate(t));
+        categories.forEach(cd => { cd.tokens = cd.tokens.filter(id => !idSet.has(String(id))); });
+        categories.forEach((cd, cn) => { if (cd.tokens.length === 0 && cd.type === 'chain') categories.delete(cn); });
+        // Splice back-to-front so indices stay valid
+        for (let i = portfolio.length - 1; i >= 0; i--) {
+            if (idSet.has(String(portfolio[i].id))) portfolio.splice(i, 1);
+        }
+        selectedIds.clear();
+        editingIdx = null; ctxIdx = null; // indices are stale after the splice
+        Store.save(); refreshAll(); syncSelectionUI();
+    }
+
     function renderNetwork(targetEl) {
         stopOrbitAnimation();
         sunNodeEl = null;
         isDraggingSun = false;
         const c = targetEl || document.getElementById('networkContainer');
         orbitContainer = c;
+        bindMarquee(c);
         if (portfolio.length === 0) { c.innerHTML = '<div class="empty-state"><div class="icon">🌌</div><div>Add tokens to build your portfolio constellation</div></div>'; return; }
 
         const tokens = getFilteredTokens();
@@ -6101,6 +6283,7 @@ SOL,100</pre></div>
 
         // Events
         const pIdx = portfolio.indexOf(token);
+        tagSelectable(node, token);
         node.addEventListener('contextmenu', e => showCtxMenu(e, pIdx));
         node.addEventListener('dblclick', () => { editingIdx = pIdx; openEditModal(); });
         node.addEventListener('mouseenter', e => showCatTooltip(token, e));
@@ -6176,6 +6359,7 @@ SOL,100</pre></div>
 
         // Events
         const pIdx = portfolio.indexOf(token);
+        tagSelectable(node, token);
         node.addEventListener('contextmenu', e => showCtxMenu(e, pIdx));
         node.addEventListener('dblclick', () => { editingIdx = pIdx; openEditModal(); });
         node.addEventListener('mouseenter', e => showCatTooltip(token, e));
@@ -6296,6 +6480,7 @@ SOL,100</pre></div>
 
         // Events
         const pIdx = portfolio.indexOf(token);
+        tagSelectable(node, token);
         node.addEventListener('contextmenu', e => showCtxMenu(e, pIdx));
         node.addEventListener('dblclick', () => { editingIdx = pIdx; openEditModal(); });
         node.addEventListener('mouseenter', e => showCatTooltip(token, e));
@@ -6389,6 +6574,7 @@ SOL,100</pre></div>
 
         // Events
         const pIdx = portfolio.indexOf(token);
+        tagSelectable(node, token);
         node.addEventListener('contextmenu', e => showCtxMenu(e, pIdx));
         node.addEventListener('dblclick', () => { editingIdx = pIdx; openEditModal(); });
         node.addEventListener('mouseenter', e => showCatTooltip(token, e));
