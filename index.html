@@ -557,6 +557,22 @@
         .nft-scan-badge { position: absolute; top: 7px; right: 7px; font-size: 0.55rem; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,0.8); color: #f59e0b; border: 1px solid rgba(245,158,11,0.35); z-index: 3; }
         .nft-scan-badge.spam { color: #ef4444; border-color: rgba(239,68,68,0.35); }
         .nft-scan-empty { grid-column: 1 / -1; padding: 30px 10px; text-align: center; color: #666; font-size: 0.8rem; }
+        .nft-scan-view-btn {
+            padding: 4px 11px; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 0.7rem;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); color: #999; transition: all 0.18s;
+        }
+        .nft-scan-view-btn:hover { border-color: rgba(0,212,255,0.35); color: #ccc; }
+        .nft-scan-view-btn.active { background: rgba(0,212,255,0.15); border-color: rgba(0,212,255,0.55); color: #e2e8f0; }
+        /* The spam badge is a button — clicking it vouches for the whole collection. */
+        .nft-scan-badge.spam { cursor: pointer; }
+        .nft-scan-badge.spam:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+        .nft-scan-floor.none { cursor: pointer; text-decoration: underline dotted rgba(255,255,255,0.25); }
+        .nft-scan-floor.none:hover { color: #00d4ff; }
+        .nft-scan-floor.manual { color: #f59e0b; }
+        .nft-scan-floor-input {
+            width: 100%; background: rgba(255,255,255,0.14); border: 1px solid rgba(0,212,255,0.5); border-radius: 5px;
+            padding: 1px 5px; color: #fff; font-size: 0.68rem; font-family: inherit;
+        }
         /* The grid is the only child allowed to flex, so the header and the footer buttons keep
            their full height and can never be clipped by the modal's overflow:hidden. */
         #nftScanResultsModal .modal > *:not(.nft-scan-grid) { flex: 0 0 auto; }
@@ -1556,7 +1572,19 @@
                         <span class="nft-scan-chip">⛓️ Ethereum</span>
                         <span style="font-size:0.65rem;color:#666">More chains coming soon</span>
                     </div>
-                    <div id="nftScanWalletInfo" class="modal-hint" style="margin-bottom:12px"></div>
+                    <div id="nftScanWalletInfo" class="modal-hint" style="margin-bottom:10px"></div>
+                    <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                            <span style="font-size:0.72rem;color:#ccc;font-weight:600">Alchemy NFT API key</span>
+                            <span id="nftAlchemyStatus" style="font-size:0.64rem"></span>
+                        </div>
+                        <div style="display:flex;gap:6px">
+                            <input type="password" id="nftAlchemyKeyInput" placeholder="Paste your Alchemy key" autocomplete="off" spellcheck="false"
+                                   style="flex:1;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:6px 10px;color:#e2e8f0;font-size:0.72rem;font-family:inherit">
+                            <button class="btn btn-secondary" style="padding:5px 12px;font-size:0.7rem" onclick="saveAlchemyKeyFromInput()">Save</button>
+                        </div>
+                        <div class="modal-hint" style="margin-top:6px;line-height:1.5">A key is built in, so this is optional — set your own if the shared one hits its free-tier limit. Saved to this browser only. "All NFTs ever owned" always uses Etherscan.</div>
+                    </div>
                     <div style="display:flex;gap:10px;justify-content:flex-end">
                         <button class="btn btn-secondary" onclick="closeNftScanOptions()">Back</button>
                         <button class="btn btn-primary" onclick="startNftScan()">Start Scan</button>
@@ -1589,14 +1617,19 @@
         <div class="modal" style="max-width:820px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
             <div class="modal-title">🖼️ NFTs Found</div>
             <div class="modal-subtitle" id="nftScanResultsSummary" style="margin-bottom:10px"></div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-                <button class="btn btn-secondary" style="padding:5px 12px;font-size:0.72rem" onclick="nftScanSelectAll(true)">Select all</button>
-                <button class="btn btn-secondary" style="padding:5px 12px;font-size:0.72rem" onclick="nftScanSelectAll(false)">Deselect all</button>
-                <label id="nftScanSpamToggleWrap" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.72rem;color:#aaa">
-                    <input type="checkbox" id="nftScanHideSpam" checked onchange="renderNftScanResults()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
-                    <span id="nftScanSpamToggleLabel">Hide likely spam</span>
-                </label>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+                <button class="btn btn-secondary" style="padding:5px 12px;font-size:0.72rem" onclick="nftScanSelectAll('all')">Select all</button>
+                <button class="btn btn-secondary" style="padding:5px 12px;font-size:0.72rem" onclick="nftScanSelectAll('none')">Deselect all</button>
+                <button class="btn btn-secondary" style="padding:5px 12px;font-size:0.72rem" onclick="nftScanSelectAll('image')" title="Select only NFTs whose artwork actually resolved">Select all with image</button>
+                <button class="btn btn-secondary" style="padding:5px 12px;font-size:0.72rem" onclick="nftScanSelectAll('floor')" title="Select only NFTs with a known floor price">Select all with floor</button>
                 <div id="nftScanSelCount" style="font-size:0.72rem;color:#888;margin-left:auto"></div>
+            </div>
+            <div id="nftScanViewWrap" style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+                <span style="font-size:0.68rem;color:#777;margin-right:2px">View</span>
+                <button type="button" class="nft-scan-view-btn active" id="nftScanViewHide" onclick="setNftScanView('hide')">Hide spam</button>
+                <button type="button" class="nft-scan-view-btn" id="nftScanViewAll" onclick="setNftScanView('all')">Show all</button>
+                <button type="button" class="nft-scan-view-btn" id="nftScanViewSpam" onclick="setNftScanView('spam')">Only spam</button>
+                <span id="nftScanSpamHint" style="font-size:0.66rem;color:#666;margin-left:4px"></span>
             </div>
             <div id="nftScanResultsGrid" class="nft-scan-grid" style="flex:1 1 auto;min-height:180px;max-height:58vh;overflow-y:auto;padding:2px 4px 2px 2px"></div>
             <div id="nftScanResultsNote" style="font-size:0.68rem;color:#666;margin-top:10px;line-height:1.5"></div>
@@ -2148,6 +2181,8 @@ SOL,100</pre></div>
         loadNftValue();
         loadNftValues();
         loadNftMeta();
+        loadAlchemyKey();
+        loadNftSpamOverrides();
         loadNFTs();
         loadWallets();
         fetchCADRate();
@@ -7256,8 +7291,40 @@ SOL,100</pre></div>
         input.id = ''; // prevent double-fire from blur after enter
         let val = parseFloat(rawInput) || 0;
         if (val > 0 && currencyMode === 'cad' && cadRate) val = val / cadRate;
-        setNftValue(idx, Math.max(0, val)); // calls recalcNftTotal -> updateNftValueDisplay + updateTotalValue + updateStats
+        val = Math.max(0, val);
+        setNftValue(idx, val); // calls recalcNftTotal -> updateNftValueDisplay + updateTotalValue + updateStats
         updateIndividualNftValueOverlay(idx, elId);
+        if (val > 0) offerCollectionValueApply(idx, val, elId);
+    }
+
+    // Scanned NFTs carry a contract address, so one typed value can price the whole collection.
+    // Only offered when there are actually siblings to apply it to, and never for manually
+    // added NFTs (they have no meta entry, so there's no collection to speak of).
+    function offerCollectionValueApply(idx, val, elId) {
+        const url = nftGallery[idx];
+        const meta = nftMeta[url];
+        if (!meta || !meta.contract) return;
+
+        const ck = collectionKey(meta.chain, meta.contract);
+        const siblings = nftGallery.filter((u, i) => {
+            if (i === idx) return false;
+            const m = nftMeta[u];
+            return m && m.contract && collectionKey(m.chain, m.contract) === ck;
+        });
+        if (siblings.length === 0) return;
+
+        const name = meta.collection || 'this collection';
+        const shown = curSym() + Math.round(toCur(val)).toLocaleString();
+        const ok = confirm('Apply ' + shown + ' to all ' + (siblings.length + 1) + ' NFTs in "' + name + '"?\n\n' +
+            'OK — set every NFT in this collection to ' + shown + '.\n' +
+            'Cancel — only this one keeps the new value.');
+        if (!ok) return;
+
+        siblings.forEach(u => { nftValues[u] = val; });
+        saveNftValues();
+        recalcNftTotal();
+        if (elId) updateIndividualNftValueOverlay(idx, elId);
+        toast('Set ' + shown + ' on ' + (siblings.length + 1) + ' NFTs in ' + name, 'success');
     }
 
     function enableManualNftValue() {
@@ -7384,6 +7451,7 @@ SOL,100</pre></div>
             key: 'ethereum', kind: 'evm', label: 'Ethereum',
             walletChainType: 'evm',
             etherscanChainId: 1,
+            alchemyNetwork: 'eth-mainnet',
             rpcUrl: () => EVM_RPC_URLS['ethereum'],
             coingeckoPlatform: 'ethereum',
         },
@@ -7398,9 +7466,47 @@ SOL,100</pre></div>
     // no floor price — a real collection you hold 30 of still has a floor, so it's never flagged.
     const NFT_SPAM_COLLECTION_COUNT = 20;
 
+    // --- Alchemy NFT API ---------------------------------------------------
+    // Shipped in the file like the other keys here. A key is an opaque account id — it exposes
+    // no account details — so the only real risk is someone else burning the free-tier quota.
+    // The scan panel can override it, which is how you'd rotate without editing this file.
+    const ALCHEMY_API_KEY = 'alch_KVD4YOiqpdXJgHqpti8z9';
+    const NFT_ALCHEMY_PAGE_SIZE = 100;
+    const NFT_ALCHEMY_MAX_PAGES = 50;   // 5,000 NFTs per wallet is far past any real gallery
+    const NFT_ALCHEMY_MAX_FLOOR_LOOKUPS = 60; // only for collections Alchemy didn't already price
+    let alchemyApiKey = ALCHEMY_API_KEY;
+
     let nftScanMode = 'held'; // 'held' = still owned, 'all' = ever received
-    let nftScanState = { running: false, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false };
+    let nftScanView = 'hide'; // 'hide' = no spam, 'all' = everything, 'spam' = only spam
+    // "chain:contract" -> true, meaning the user vouched for this collection. Persisted, because
+    // re-flagging a collection the user already cleared on every rescan would be maddening.
+    let nftSpamOverrides = {};
+    let nftScanState = { running: false, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: 'etherscan', ethUsd: 0 };
     const nftFloorCache = {}; // contractLower -> usd number, or null when there's no floor to be had
+
+    // A saved override wins; otherwise the built-in key is used.
+    function loadAlchemyKey() {
+        try { alchemyApiKey = localStorage.getItem(lsKey('alchemyKey')) || ALCHEMY_API_KEY; }
+        catch (e) { alchemyApiKey = ALCHEMY_API_KEY; }
+    }
+    function saveAlchemyKey(k) {
+        const v = String(k || '').trim();
+        alchemyApiKey = v || ALCHEMY_API_KEY;   // clearing the field reverts to the built-in key
+        try {
+            if (v) localStorage.setItem(lsKey('alchemyKey'), v);
+            else localStorage.removeItem(lsKey('alchemyKey'));
+        } catch (e) {}
+    }
+    function hasAlchemyKey() { return !!alchemyApiKey; }
+    function usingAlchemyOverride() { return alchemyApiKey !== ALCHEMY_API_KEY; }
+
+    function loadNftSpamOverrides() {
+        try { const d = JSON.parse(localStorage.getItem(lsKey('nftSpamOverrides'))); if (d && typeof d === 'object') nftSpamOverrides = d; } catch (e) {}
+    }
+    function saveNftSpamOverrides() {
+        try { localStorage.setItem(lsKey('nftSpamOverrides'), JSON.stringify(nftSpamOverrides)); } catch (e) {}
+    }
+    function collectionKey(chain, contract) { return (chain || 'ethereum') + ':' + String(contract || '').toLowerCase(); }
 
     function openAddNFTModal() {
         resetNftScanPanel();
@@ -7427,8 +7533,38 @@ SOL,100</pre></div>
                     eligible.map(w => w.label).join(', ');
             }
         }
+        refreshAlchemyKeyUI();
         document.getElementById('nftScanIntro').style.display = 'none';
         document.getElementById('nftScanOptions').style.display = 'block';
+    }
+
+    function refreshAlchemyKeyUI() {
+        const input = document.getElementById('nftAlchemyKeyInput');
+        const status = document.getElementById('nftAlchemyStatus');
+        const override = usingAlchemyOverride();
+        if (input) {
+            input.value = '';
+            input.placeholder = override ? 'Using your key — clear and save to revert' : 'Optional: use your own key instead';
+        }
+        if (status) {
+            status.textContent = override ? '✓ using your key' : '✓ using the built-in key';
+            status.style.color = override ? '#10b981' : '#888';
+        }
+        // "All ever owned" is history, which Alchemy's owner endpoint can't answer.
+        const modeAll = document.getElementById('nftScanModeAll');
+        if (modeAll) {
+            const span = modeAll.querySelector('span');
+            if (span) span.textContent = 'Includes ones since transferred out (uses Etherscan)';
+        }
+    }
+
+    function saveAlchemyKeyFromInput() {
+        const input = document.getElementById('nftAlchemyKeyInput');
+        if (!input) return;
+        const v = input.value.trim();
+        saveAlchemyKey(v);
+        refreshAlchemyKeyUI();
+        toast(v ? 'Using your Alchemy key on this browser' : 'Reverted to the built-in Alchemy key', 'success');
     }
 
     function nftScanEligibleWallets() {
@@ -7474,26 +7610,30 @@ SOL,100</pre></div>
         const eligible = nftScanEligibleWallets();
         if (eligible.length === 0) { toast('Add an Ethereum wallet first', 'warning'); return; }
 
-        nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false };
+        // Alchemy is the fast, complete path but it only knows what a wallet holds *now*.
+        // "All ever owned" is a history question, so it stays on Etherscan transfers.
+        const useAlchemy = hasAlchemyKey() && nftScanMode === 'held';
+        nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: useAlchemy ? 'alchemy' : 'etherscan', ethUsd: 0, alchemyFailed: '' };
         closeModal('addNFTModal');
         resetNftScanPanel();
         showModal('nftScanProgressModal');
-        nftScanProgress('Reading transfers…', 'Starting');
+        nftScanProgress(useAlchemy ? 'Reading wallets…' : 'Reading transfers…', 'Starting');
 
         try {
-            // Phase 1 — discover every (contract, tokenId) the wallets have touched
-            const ledger = new Map();
-            for (const chainKey of NFT_SCAN_ACTIVE_CHAINS) {
-                if (nftScanState.cancelled) break;
-                const chain = NFT_SCAN_CHAINS[chainKey];
-                const chainWallets = eligible.filter(w => w.chainType === chain.walletChainType);
-                for (let i = 0; i < chainWallets.length; i++) {
-                    if (nftScanState.cancelled) break;
-                    const w = chainWallets[i];
-                    nftScanProgress('Reading ' + chain.label + ' transfers',
-                        '(' + (i + 1) + '/' + chainWallets.length + ') ' + w.label);
-                    await discoverNftsForChain(chain, w, ledger);
-                }
+            // Phase 1 — discover every (contract, tokenId) the wallets have touched.
+            // If Alchemy is down or the key is bad, drop to Etherscan rather than failing the
+            // whole scan — a slower result beats no result.
+            let ledger = new Map();
+            try {
+                await runNftDiscovery(eligible, ledger);
+            } catch (e) {
+                if (nftScanState.source !== 'alchemy') throw e;
+                console.warn('[NFT-Scan] Alchemy failed, falling back to Etherscan:', e);
+                nftScanState.source = 'etherscan';
+                nftScanState.alchemyFailed = String((e && e.message) || 'Alchemy request failed');
+                ledger = new Map();
+                nftScanProgress('Reading transfers…', 'Alchemy unavailable — using Etherscan');
+                await runNftDiscovery(eligible, ledger);
             }
             if (nftScanState.cancelled) return abortNftScan();
 
@@ -7507,38 +7647,69 @@ SOL,100</pre></div>
                 return;
             }
 
-            // Phase 3 — resolve images from on-chain metadata
-            const metaTargets = records.slice(0, NFT_SCAN_MAX_METADATA);
-            if (records.length > metaTargets.length) nftScanState.metaCapped = true;
-            let done = 0;
-            for (let i = 0; i < metaTargets.length; i += 4) {
-                if (nftScanState.cancelled) break;
-                const batch = metaTargets.slice(i, i + 4);
-                nftScanProgress('Fetching artwork', done + '/' + metaTargets.length + ' — reading tokenURI and metadata');
-                await Promise.all(batch.map(async rec => {
-                    const resolved = await resolveNftArtwork(NFT_SCAN_CHAINS[rec.chain], rec);
-                    if (resolved) { rec.image = resolved.image || ''; if (resolved.name) rec.tokenName = resolved.name; }
-                    done++;
-                }));
-                nftScanProgress(null, done + '/' + metaTargets.length + ' — reading tokenURI and metadata');
+            // Phase 3 — resolve images. Alchemy already returned cached CDN artwork, so this
+            // whole leg (tokenURI reads + IPFS gateway roulette) only runs on the Etherscan path.
+            if (nftScanState.source !== 'alchemy') {
+                const metaTargets = records.slice(0, NFT_SCAN_MAX_METADATA);
+                if (records.length > metaTargets.length) nftScanState.metaCapped = true;
+                let done = 0;
+                for (let i = 0; i < metaTargets.length; i += 4) {
+                    if (nftScanState.cancelled) break;
+                    const batch = metaTargets.slice(i, i + 4);
+                    nftScanProgress('Fetching artwork', done + '/' + metaTargets.length + ' — reading tokenURI and metadata');
+                    await Promise.all(batch.map(async rec => {
+                        const resolved = await resolveNftArtwork(NFT_SCAN_CHAINS[rec.chain], rec);
+                        if (resolved) { rec.image = resolved.image || ''; if (resolved.name) rec.tokenName = resolved.name; }
+                        done++;
+                    }));
+                    nftScanProgress(null, done + '/' + metaTargets.length + ' — reading tokenURI and metadata');
+                }
             }
             if (nftScanState.cancelled) return abortNftScan();
 
-            // Phase 4 — one floor-price lookup per collection, used only as a default value
+            // Phase 4 — floor prices, one per collection, used only as a default value.
             const contracts = [];
             const seenContract = new Set();
             records.forEach(r => {
                 const k = r.chain + ':' + r.contract.toLowerCase();
                 if (!seenContract.has(k)) { seenContract.add(k); contracts.push(r); }
             });
-            const floorTargets = contracts.slice(0, NFT_SCAN_MAX_FLOOR_LOOKUPS);
-            if (contracts.length > floorTargets.length) nftScanState.floorCapped = true;
-            for (let i = 0; i < floorTargets.length; i++) {
-                if (nftScanState.cancelled || nftScanState.floorRateLimited) break;
-                const rec = floorTargets[i];
-                nftScanProgress('Checking floor prices', (i + 1) + '/' + floorTargets.length + ' — ' + (rec.collection || 'collection'));
-                await fetchNftFloorUsd(NFT_SCAN_CHAINS[rec.chain], rec.contract);
-                if (i < floorTargets.length - 1) await delay(1400); // CoinGecko free tier
+
+            if (nftScanState.source === 'alchemy') {
+                // Most collections already came back priced in openSeaMetadata. Only the rest
+                // need a call, and they're quoted in ETH so we need one spot price to convert.
+                nftScanProgress('Checking floor prices', 'Fetching ETH price');
+                nftScanState.ethUsd = await fetchEthUsd();
+                const ethUsd = nftScanState.ethUsd;
+
+                const pricedByContract = new Map();
+                records.forEach(r => {
+                    const k = r.contract.toLowerCase();
+                    if (r.floorEth > 0 && !pricedByContract.has(k)) pricedByContract.set(k, r.floorEth);
+                });
+                pricedByContract.forEach((eth, k) => { if (ethUsd > 0) nftFloorCache[k] = eth * ethUsd; });
+
+                const needFloor = contracts.filter(r => !pricedByContract.has(r.contract.toLowerCase()));
+                const floorTargets = needFloor.slice(0, NFT_ALCHEMY_MAX_FLOOR_LOOKUPS);
+                if (needFloor.length > floorTargets.length) nftScanState.floorCapped = true;
+                for (let i = 0; i < floorTargets.length; i++) {
+                    if (nftScanState.cancelled) break;
+                    const rec = floorTargets[i];
+                    nftScanProgress('Checking floor prices', (i + 1) + '/' + floorTargets.length + ' — ' + (rec.collection || 'collection'));
+                    const eth = await fetchAlchemyFloorEth(NFT_SCAN_CHAINS[rec.chain], rec.contract);
+                    const k = rec.contract.toLowerCase();
+                    nftFloorCache[k] = eth > 0 && ethUsd > 0 ? eth * ethUsd : null;
+                }
+            } else {
+                const floorTargets = contracts.slice(0, NFT_SCAN_MAX_FLOOR_LOOKUPS);
+                if (contracts.length > floorTargets.length) nftScanState.floorCapped = true;
+                for (let i = 0; i < floorTargets.length; i++) {
+                    if (nftScanState.cancelled || nftScanState.floorRateLimited) break;
+                    const rec = floorTargets[i];
+                    nftScanProgress('Checking floor prices', (i + 1) + '/' + floorTargets.length + ' — ' + (rec.collection || 'collection'));
+                    await fetchNftFloorUsd(NFT_SCAN_CHAINS[rec.chain], rec.contract);
+                    if (i < floorTargets.length - 1) await delay(1400); // CoinGecko free tier
+                }
             }
             if (nftScanState.cancelled) return abortNftScan();
 
@@ -7553,6 +7724,9 @@ SOL,100</pre></div>
                     tokenName: rec.tokenName || '', image: rec.image || '',
                     placeholder: nftPlaceholderUrl(rec),
                     floorUsd: typeof floor === 'number' && floor > 0 ? floor : 0,
+                    floorManual: false,
+                    alchemySpam: !!rec.alchemySpam,
+                    spamClassifications: rec.spamClassifications || [],
                     alreadyAdded: already,
                     selected: !already,
                 };
@@ -7562,6 +7736,7 @@ SOL,100</pre></div>
             nftScanState.results.forEach(r => { r.selected = !r.alreadyAdded && !r.spam; });
 
             nftScanState.running = false;
+            nftScanView = 'hide'; // every scan opens on the clean view
             closeModal('nftScanProgressModal');
             renderNftScanResults();
             showModal('nftScanResultsModal');
@@ -7569,7 +7744,12 @@ SOL,100</pre></div>
             console.error('[NFT-Scan] FAILED:', e);
             nftScanState.running = false;
             closeModal('nftScanProgressModal');
-            toast('NFT scan failed: ' + (e.message || 'unknown'), 'warning');
+            const msg = String(e && e.message || 'unknown');
+            if (/API key/i.test(msg)) {
+                toast('Alchemy rejected the API key — check it in Scan Wallets, or clear it to use Etherscan', 'warning');
+            } else {
+                toast('NFT scan failed: ' + msg, 'warning');
+            }
         }
     }
 
@@ -7580,10 +7760,132 @@ SOL,100</pre></div>
     }
 
     // --- discovery ---------------------------------------------------------
+    // Walks every active chain × eligible wallet into the shared ledger. Split out so the
+    // Alchemy→Etherscan fallback can simply run it a second time against a fresh ledger.
+    async function runNftDiscovery(eligible, ledger) {
+        const alchemy = nftScanState.source === 'alchemy';
+        for (const chainKey of NFT_SCAN_ACTIVE_CHAINS) {
+            if (nftScanState.cancelled) break;
+            const chain = NFT_SCAN_CHAINS[chainKey];
+            const chainWallets = eligible.filter(w => w.chainType === chain.walletChainType);
+            for (let i = 0; i < chainWallets.length; i++) {
+                if (nftScanState.cancelled) break;
+                const w = chainWallets[i];
+                nftScanProgress((alchemy ? 'Reading ' + chain.label + ' wallets' : 'Reading ' + chain.label + ' transfers'),
+                    '(' + (i + 1) + '/' + chainWallets.length + ') ' + w.label);
+                await discoverNftsForChain(chain, w, ledger);
+            }
+        }
+    }
+
     async function discoverNftsForChain(chain, wallet, ledger) {
+        // Alchemy returns current holdings directly, so it can only answer "currently held".
+        // "All ever owned" still needs the transfer history, which only Etherscan has.
+        if (chain.kind === 'evm' && nftScanState.source === 'alchemy') return discoverAlchemyNfts(chain, wallet, ledger);
         if (chain.kind === 'evm') return discoverEvmNfts(chain, wallet, ledger);
         // Part 2: Solana via Helius plugs in here as another `kind`.
         console.warn('[NFT-Scan] no discovery handler for chain kind:', chain.kind);
+    }
+
+    // --- Alchemy NFT API ---------------------------------------------------
+    function alchemyNftBase(chain) {
+        return 'https://' + chain.alchemyNetwork + '.g.alchemy.com/nft/v3/' + encodeURIComponent(alchemyApiKey);
+    }
+
+    // Alchemy hands back cached CDN artwork and (usually) an OpenSea floor in the same payload,
+    // so one paged call replaces transfer-netting + tokenURI reads + IPFS gateways + CoinGecko.
+    async function discoverAlchemyNfts(chain, wallet, ledger) {
+        const me = wallet.address;
+        let pageKey = null;
+        let page = 0;
+        do {
+            if (nftScanState.cancelled) return;
+            // NOTE: deliberately NOT sending excludeFilters[]=SPAM. That drops spam server-side,
+            // which would make the "Only spam" view impossible to populate. We read Alchemy's
+            // isSpam/spamClassifications flags instead and filter in the UI, where it's reversible.
+            let url = alchemyNftBase(chain) + '/getNFTsForOwner?owner=' + encodeURIComponent(me) +
+                '&withMetadata=true&pageSize=' + NFT_ALCHEMY_PAGE_SIZE;
+            if (pageKey) url += '&pageKey=' + encodeURIComponent(pageKey);
+
+            let data;
+            try {
+                const r = await fetch(url);
+                if (r.status === 401 || r.status === 403) throw new Error('Alchemy rejected the API key');
+                if (r.status === 429) { await delay(1500); continue; } // brief backoff, then retry the same page
+                if (!r.ok) throw new Error('Alchemy returned HTTP ' + r.status);
+                data = await r.json();
+            } catch (e) {
+                console.error('[NFT-Scan] Alchemy page failed:', e);
+                throw e;
+            }
+
+            const owned = (data && data.ownedNfts) || [];
+            owned.forEach(n => {
+                const contract = (n.contract && n.contract.address) || '';
+                const tokenId = n.tokenId != null ? String(n.tokenId) : '';
+                if (!contract || !tokenId) return;
+                const key = nftKey(chain.key, contract, tokenId);
+                if (ledger.has(key)) return; // same token seen from another wallet
+
+                const c = n.contract || {};
+                const osm = c.openSeaMetadata || {};
+                const img = n.image || {};
+                // cachedUrl is Alchemy's own CDN copy and is the one that reliably loads.
+                const image = img.cachedUrl || img.pngUrl || img.thumbnailUrl || img.originalUrl || '';
+                const floorEth = typeof osm.floorPrice === 'number' && osm.floorPrice > 0 ? osm.floorPrice : 0;
+
+                ledger.set(key, {
+                    key, chain: chain.key, contract, tokenId,
+                    standard: (n.tokenType || c.tokenType || 'ERC721').toLowerCase(),
+                    collection: osm.collectionName || c.name || c.symbol || '',
+                    tokenName: n.name || '',
+                    image,
+                    floorEth,
+                    // Alchemy's own spam verdict — far better than anything we can infer client-side.
+                    alchemySpam: c.isSpam === true || c.isSpam === 'true' ||
+                                 (Array.isArray(c.spamClassifications) && c.spamClassifications.length > 0),
+                    spamClassifications: Array.isArray(c.spamClassifications) ? c.spamClassifications : [],
+                    held: true, everOwned: true, lastBlock: 0,
+                });
+            });
+
+            pageKey = data && data.pageKey ? data.pageKey : null;
+            page++;
+            nftScanProgress(null, ledger.size + ' NFTs found — ' + wallet.label + ' (page ' + page + ')');
+            if (page >= NFT_ALCHEMY_MAX_PAGES && pageKey) { nftScanState.truncated = true; break; }
+        } while (pageKey);
+    }
+
+    // Only called for collections Alchemy didn't already price via openSeaMetadata.
+    async function fetchAlchemyFloorEth(chain, contract) {
+        try {
+            const url = alchemyNftBase(chain) + '/getFloorPrice?contractAddress=' + encodeURIComponent(contract);
+            const r = await fetch(url);
+            if (!r.ok) return 0;
+            const d = await r.json();
+            // Response carries one block per marketplace; take the cheapest real ask.
+            const asks = [];
+            ['openSea', 'looksRare'].forEach(mk => {
+                const m = d && d[mk];
+                if (m && typeof m.floorPrice === 'number' && m.floorPrice > 0 && !m.error) asks.push(m.floorPrice);
+            });
+            return asks.length ? Math.min.apply(null, asks) : 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    // Alchemy quotes floors in ETH; the gallery stores USD. One call per scan.
+    async function fetchEthUsd() {
+        try {
+            const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+            if (!r.ok) return 0;
+            const d = await r.json();
+            const v = d && d.ethereum && d.ethereum.usd;
+            return typeof v === 'number' && v > 0 ? v : 0;
+        } catch (e) {
+            return 0;
+        }
     }
 
     async function discoverEvmNfts(chain, wallet, ledger) {
@@ -7833,53 +8135,92 @@ SOL,100</pre></div>
     function classifyNftScanSpam(results) {
         const perCollection = new Map();
         results.forEach(r => {
-            const k = r.chain + ':' + r.contract.toLowerCase();
+            const k = collectionKey(r.chain, r.contract);
             perCollection.set(k, (perCollection.get(k) || 0) + 1);
         });
         results.forEach(r => {
-            const count = perCollection.get(r.chain + ':' + r.contract.toLowerCase()) || 1;
+            const ck = collectionKey(r.chain, r.contract);
+            const count = perCollection.get(ck) || 1;
+            r.collectionCount = count;
+
+            // A collection the user vouched for is never spam again, whatever the signals say.
+            if (nftSpamOverrides[ck]) { r.spam = false; r.spamReason = ''; r.spamCleared = true; return; }
+            r.spamCleared = false;
+
             const noImage = !r.image;
             const noFloor = !(r.floorUsd > 0);
             const noName = !r.collection || r.collection === 'Unknown collection';
             const reasons = [];
+            // Alchemy's own classifier sees the whole chain, so it leads when it has an opinion.
+            if (r.alchemySpam) {
+                reasons.push(r.spamClassifications && r.spamClassifications.length
+                    ? 'Alchemy flagged: ' + r.spamClassifications.join(', ')
+                    : 'flagged as spam by Alchemy');
+            }
             if (noImage && noFloor && noName) reasons.push('no image, name, or floor price');
             if (count >= NFT_SPAM_COLLECTION_COUNT && noFloor) reasons.push(count + ' from one collection, no floor price');
-            r.collectionCount = count;
             r.spam = reasons.length > 0;
             r.spamReason = reasons.join(' · ');
         });
     }
 
-    function nftScanHidingSpam() {
-        const cb = document.getElementById('nftScanHideSpam');
-        return cb ? cb.checked : true;
+    // Clicking a "Spam?" badge vouches for the whole contract, not just the one token —
+    // airdrops arrive in bulk, so per-token clearing would be busywork.
+    function clearCollectionSpam(idx) {
+        const r = nftScanState.results[idx];
+        if (!r) return;
+        const ck = collectionKey(r.chain, r.contract);
+        nftSpamOverrides[ck] = true;
+        saveNftSpamOverrides();
+        classifyNftScanSpam(nftScanState.results);
+        // Newly cleared items become selectable, matching what a fresh scan would have done.
+        nftScanState.results.forEach(x => {
+            if (collectionKey(x.chain, x.contract) === ck && !x.alreadyAdded) x.selected = true;
+        });
+        const n = nftScanState.results.filter(x => collectionKey(x.chain, x.contract) === ck).length;
+        renderNftScanResults();
+        toast('Marked "' + (r.collection || 'collection') + '" as not spam · ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' cleared', 'success');
+    }
+
+    function setNftScanView(view) {
+        nftScanView = (view === 'all' || view === 'spam') ? view : 'hide';
+        renderNftScanResults();
+    }
+
+    // Whether a result is visible under the current view.
+    function nftScanRowVisible(r) {
+        if (nftScanView === 'all') return true;
+        if (nftScanView === 'spam') return !!r.spam;
+        return !r.spam;
     }
 
     // --- results UI --------------------------------------------------------
     function renderNftScanResults() {
         const grid = document.getElementById('nftScanResultsGrid');
         const results = nftScanState.results;
-        const hideSpam = nftScanHidingSpam();
         const spamCount = results.filter(r => r.spam).length;
-        // A hidden row must never end up added, so it loses its selection on the way out.
-        if (hideSpam) results.forEach(r => { if (r.spam) r.selected = false; });
+        // A row hidden by the current view must never end up added, so it loses its selection.
+        results.forEach(r => { if (!nftScanRowVisible(r)) r.selected = false; });
 
         const already = results.filter(r => r.alreadyAdded).length;
         const fresh = results.length - already;
         let summary = 'Found ' + results.length + ' NFT' + (results.length !== 1 ? 's' : '') +
             ' · ' + fresh + ' new · ' + already + ' already added';
-        if (spamCount > 0) summary += ' · ' + spamCount + (hideSpam ? ' hidden as spam' : ' flagged as spam');
+        if (spamCount > 0) summary += ' · ' + spamCount + ' flagged as spam';
+        if (nftScanState.source === 'alchemy') summary += ' · via Alchemy';
         document.getElementById('nftScanResultsSummary').textContent = summary;
 
-        const wrap = document.getElementById('nftScanSpamToggleWrap');
-        const lbl = document.getElementById('nftScanSpamToggleLabel');
-        if (wrap) wrap.style.display = spamCount > 0 ? 'flex' : 'none';
-        if (lbl) lbl.textContent = 'Hide likely spam (' + spamCount + ')';
+        ['hide', 'all', 'spam'].forEach(v => {
+            const b = document.getElementById('nftScanView' + v.charAt(0).toUpperCase() + v.slice(1));
+            if (b) b.classList.toggle('active', nftScanView === v);
+        });
+        const hint = document.getElementById('nftScanSpamHint');
+        if (hint) hint.textContent = spamCount > 0 ? spamCount + ' flagged — click a “Spam?” badge to clear its whole collection' : 'Nothing flagged as spam';
 
         grid.innerHTML = '';
         let shown = 0;
         results.forEach((r, i) => {
-            if (hideSpam && r.spam) return;
+            if (!nftScanRowVisible(r)) return;
             shown++;
             const card = document.createElement('div');
             card.className = 'nft-scan-card' + (r.alreadyAdded ? ' dupe' : (r.selected ? ' selected' : '')) + (r.spam ? ' spam' : '');
@@ -7898,7 +8239,11 @@ SOL,100</pre></div>
                 const badge = document.createElement('div');
                 badge.className = 'nft-scan-badge' + (r.alreadyAdded ? '' : ' spam');
                 badge.textContent = r.alreadyAdded ? 'Already added' : 'Spam?';
-                if (!r.alreadyAdded && r.spamReason) badge.title = r.spamReason;
+                if (!r.alreadyAdded) {
+                    badge.title = (r.spamReason ? r.spamReason + '\n\n' : '') +
+                        'Click to mark this whole collection as not spam';
+                    badge.addEventListener('click', e => { e.stopPropagation(); clearCollectionSpam(i); });
+                }
                 card.appendChild(badge);
             }
 
@@ -7912,12 +8257,21 @@ SOL,100</pre></div>
 
             const info = document.createElement('div');
             info.className = 'nft-scan-info';
-            const floorHtml = r.floorUsd > 0
-                ? '<div class="nft-scan-floor">Floor ' + curSym() + Math.round(toCur(r.floorUsd)).toLocaleString() + '</div>'
-                : '<div class="nft-scan-floor none">No floor found</div>';
             info.innerHTML = '<div class="nft-scan-name" title="' + escapeHtml(r.collection) + '">' + escapeHtml(r.collection) + '</div>' +
-                '<div class="nft-scan-id" title="' + escapeHtml(String(r.tokenId)) + '">#' + escapeHtml(shortTokenId(r.tokenId)) + '</div>' +
-                floorHtml;
+                '<div class="nft-scan-id" title="' + escapeHtml(String(r.tokenId)) + '">#' + escapeHtml(shortTokenId(r.tokenId)) + '</div>';
+
+            const floor = document.createElement('div');
+            if (r.floorUsd > 0) {
+                floor.className = 'nft-scan-floor' + (r.floorManual ? ' manual' : '');
+                floor.textContent = (r.floorManual ? 'Set ' : 'Floor ') + curSym() + Math.round(toCur(r.floorUsd)).toLocaleString();
+                floor.title = 'Click to set a value for this whole collection';
+            } else {
+                floor.className = 'nft-scan-floor none';
+                floor.textContent = 'No floor found';
+                floor.title = 'Click to set a value for this whole collection';
+            }
+            floor.addEventListener('click', e => { e.stopPropagation(); startEditScanFloor(i); });
+            info.appendChild(floor);
             card.appendChild(info);
 
             if (!r.alreadyAdded) card.addEventListener('click', () => toggleNftScanPick(i, !nftScanState.results[i].selected));
@@ -7927,26 +8281,86 @@ SOL,100</pre></div>
         if (shown === 0) {
             const empty = document.createElement('div');
             empty.className = 'nft-scan-empty';
-            empty.textContent = results.length === 0
-                ? 'No NFTs found in these wallets.'
-                : 'All ' + results.length + ' NFTs were filtered out as likely spam — untick "Hide likely spam" to see them.';
+            empty.textContent = results.length === 0 ? 'No NFTs found in these wallets.'
+                : nftScanView === 'spam' ? 'Nothing is flagged as spam — switch to “Show all”.'
+                : 'All ' + results.length + ' NFTs are flagged as spam — switch to “Show all” or “Only spam” to review them.';
             grid.appendChild(empty);
         }
 
         const notes = [];
-        if (nftScanState.metaCapped) notes.push('Artwork was resolved for the ' + NFT_SCAN_MAX_METADATA + ' most recent NFTs; the rest show a placeholder.');
-        if (nftScanState.floorCapped) notes.push('Floor prices were checked for the first ' + NFT_SCAN_MAX_FLOOR_LOOKUPS + ' collections.');
+        const alchemy = nftScanState.source === 'alchemy';
+        if (alchemy) notes.push('Artwork and most floor prices came from Alchemy, which serves cached images and its own spam classification.');
+        if (nftScanState.alchemyFailed) notes.push('Alchemy was unavailable (' + nftScanState.alchemyFailed + '), so this used the slower Etherscan method — expect fewer images and floor prices.');
+        if (!alchemy && nftScanState.metaCapped) notes.push('Artwork was resolved for the ' + NFT_SCAN_MAX_METADATA + ' most recent NFTs; the rest show a placeholder.');
+        if (nftScanState.floorCapped) notes.push('Floor prices were checked for the first ' + (alchemy ? NFT_ALCHEMY_MAX_FLOOR_LOOKUPS : NFT_SCAN_MAX_FLOOR_LOOKUPS) + ' collections that needed a lookup.');
+        if (alchemy && !nftScanState.ethUsd) notes.push('The ETH price could not be fetched, so floors that were quoted in ETH are missing — click any value to set one.');
         if (nftScanState.floorRateLimited) notes.push('CoinGecko rate-limited the floor lookups, so some values are empty — you can type them in later.');
-        if (nftScanState.truncated) notes.push('A wallet had more transfers than one scan can read; very old NFTs may be missing.');
-        // The spam test reads image/name/floor, and both lookups are capped — so past those caps it is
+        if (nftScanState.truncated) notes.push(alchemy ? 'A wallet holds more NFTs than one scan reads; some may be missing.' : 'A wallet had more transfers than one scan can read; very old NFTs may be missing.');
+        // The spam test reads image/name/floor, and the lookups are capped — so past those caps it is
         // judging on data that was never fetched. Say so rather than let the count look authoritative.
         if (spamCount > 0 && (nftScanState.metaCapped || nftScanState.floorCapped)) {
             notes.push('The spam filter uses artwork, collection name and floor price — since those lookups were capped above, check the flagged ones before dismissing them.');
         }
+        if (spamCount > 0) notes.push('Clicking a “Spam?” badge clears that entire collection, and the choice is remembered for future scans.');
+        notes.push('Click any floor price — found or not — to set one value across a whole collection.');
         notes.push('Anything without a value can be priced by clicking the value under the NFT in the gallery.');
         document.getElementById('nftScanResultsNote').innerHTML = notes.map(n => '• ' + escapeHtml(n)).join('<br>');
 
         updateNftScanSelCount();
+    }
+
+    // --- setting a floor for a whole collection from the results grid ------
+    function startEditScanFloor(idx) {
+        const card = document.querySelector('#nftScanResultsGrid .nft-scan-card[data-idx="' + idx + '"]');
+        if (!card) return;
+        const slot = card.querySelector('.nft-scan-floor');
+        if (!slot || card.querySelector('.nft-scan-floor-input')) return;
+        const r = nftScanState.results[idx];
+        const current = r.floorUsd > 0 ? Math.round(toCur(r.floorUsd)) : '';
+
+        slot.innerHTML = '<input type="number" class="nft-scan-floor-input" step="any" min="0" placeholder="Value" value="' + current + '">';
+        const input = slot.querySelector('.nft-scan-floor-input');
+        input.focus();
+        input.select();
+        let done = false;
+        const commit = (save) => {
+            if (done) return;
+            done = true;
+            if (save) applyScanFloorToCollection(idx, input.value);
+            else renderNftScanResults();
+        };
+        input.addEventListener('click', e => e.stopPropagation());
+        input.addEventListener('keydown', e => {
+            e.stopPropagation();
+            if (e.key === 'Enter') commit(true);
+            if (e.key === 'Escape') commit(false);
+        });
+        input.addEventListener('blur', () => commit(true));
+    }
+
+    // Applies to every result sharing the contract — one collection, one price.
+    function applyScanFloorToCollection(idx, raw) {
+        const r = nftScanState.results[idx];
+        if (!r) return;
+        let val = parseFloat(raw) || 0;
+        if (val > 0 && currencyMode === 'cad' && cadRate) val = val / cadRate; // stored in USD
+        val = Math.max(0, val);
+
+        const ck = collectionKey(r.chain, r.contract);
+        let n = 0;
+        nftScanState.results.forEach(x => {
+            if (collectionKey(x.chain, x.contract) !== ck) return;
+            x.floorUsd = val;
+            x.floorManual = val > 0;
+            n++;
+        });
+        // A collection the user just priced is, by definition, worth something — so the
+        // "no floor" half of the spam test no longer applies to it.
+        if (val > 0) nftFloorCache[String(r.contract).toLowerCase()] = val;
+        classifyNftScanSpam(nftScanState.results);
+        renderNftScanResults();
+        if (val > 0) toast('Set ' + curSym() + Math.round(toCur(val)).toLocaleString() + ' on ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' in ' + (r.collection || 'this collection'), 'success');
+        else toast('Cleared the value for ' + (r.collection || 'this collection'), 'info');
     }
 
     function toggleNftScanPick(idx, checked) {
@@ -7962,14 +8376,32 @@ SOL,100</pre></div>
         updateNftScanSelCount();
     }
 
-    // A row the filter is hiding can't be picked — otherwise "Select all" would quietly
-    // add the spam the user asked to hide.
+    // A row the current view is hiding can't be picked — otherwise "Select all" would
+    // quietly add spam the user asked not to see.
     function nftScanPickable(r) {
-        return !r.alreadyAdded && !(r.spam && nftScanHidingSpam());
+        return !r.alreadyAdded && nftScanRowVisible(r);
     }
 
-    function nftScanSelectAll(select) {
-        nftScanState.results.forEach(r => { if (nftScanPickable(r)) r.selected = !!select; });
+    // A real image means artwork actually resolved — a placeholder doesn't count.
+    function nftScanHasImage(r) { return !!r.image; }
+    function nftScanHasFloor(r) { return r.floorUsd > 0; }
+
+    // mode: 'all' | 'none' | 'image' | 'floor'. The last two let the user grab everything
+    // that carries visual value or price data without clicking through hundreds of blanks.
+    function nftScanSelectAll(mode) {
+        if (mode === true) mode = 'all';
+        if (mode === false) mode = 'none';
+        const test = mode === 'all' ? () => true
+            : mode === 'image' ? nftScanHasImage
+            : mode === 'floor' ? nftScanHasFloor
+            : () => false;
+
+        let picked = 0;
+        nftScanState.results.forEach(r => {
+            if (!nftScanPickable(r)) return;
+            r.selected = test(r);
+            if (r.selected) picked++;
+        });
         document.querySelectorAll('#nftScanResultsGrid .nft-scan-card').forEach(card => {
             const r = nftScanState.results[parseInt(card.dataset.idx, 10)];
             if (!r || r.alreadyAdded) return;
@@ -7978,6 +8410,8 @@ SOL,100</pre></div>
             if (cb) cb.checked = r.selected;
         });
         updateNftScanSelCount();
+        if (mode === 'image') toast(picked + ' NFT' + (picked !== 1 ? 's' : '') + ' with artwork selected', picked ? 'success' : 'info');
+        if (mode === 'floor') toast(picked + ' NFT' + (picked !== 1 ? 's' : '') + ' with a floor price selected', picked ? 'success' : 'info');
     }
 
     function updateNftScanSelCount() {
