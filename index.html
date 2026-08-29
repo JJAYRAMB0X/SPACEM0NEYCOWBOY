@@ -7458,7 +7458,15 @@ SOL,100</pre></div>
     };
     const NFT_SCAN_ACTIVE_CHAINS = ['ethereum'];
 
-    const NFT_IPFS_GATEWAYS = ['https://ipfs.io/ipfs/', 'https://cloudflare-ipfs.com/ipfs/', 'https://dweb.link/ipfs/'];
+    // cloudflare-ipfs.com was retired and now fails every request. Public gateways are
+    // individually flaky — ipfs.io in particular rate-limits browser traffic and then serves
+    // an error the <img> can't decode — so several are listed and tried in turn.
+    const NFT_IPFS_GATEWAYS = [
+        'https://gateway.pinata.cloud/ipfs/',
+        'https://ipfs.io/ipfs/',
+        'https://dweb.link/ipfs/',
+        'https://nftstorage.link/ipfs/',
+    ];
     const NFT_SCAN_MAX_TX_PAGES = 10;       // 1000 rows/page — 10k transfers per endpoint per wallet
     const NFT_SCAN_MAX_METADATA = 400;      // ceiling on tokenURI + image lookups per scan
     const NFT_SCAN_MAX_FLOOR_LOOKUPS = 40;  // CoinGecko's free tier is slow; cap collections per scan
@@ -7722,6 +7730,10 @@ SOL,100</pre></div>
                     key: rec.key, chain: rec.chain, contract: rec.contract, tokenId: rec.tokenId,
                     standard: rec.standard, collection: rec.collection || 'Unknown collection',
                     tokenName: rec.tokenName || '', image: rec.image || '',
+                    imageCandidates: rec.imageCandidates && rec.imageCandidates.length
+                        ? rec.imageCandidates
+                        : (rec.image ? [rec.image] : []),
+                    imageOk: undefined, // set once an <img> proves a candidate actually renders
                     placeholder: nftPlaceholderUrl(rec),
                     floorUsd: typeof floor === 'number' && floor > 0 ? floor : 0,
                     floorManual: false,
@@ -7787,6 +7799,28 @@ SOL,100</pre></div>
         console.warn('[NFT-Scan] no discovery handler for chain kind:', chain.kind);
     }
 
+    // Alchemy's CDN cache is per-token and sometimes never completes. For fully on-chain
+    // collections (CyberBrokers, for one) `cachedUrl` returns a 112-byte JSON stub
+    // — {"partialUpload":true,…} served as image/svg+xml — which no browser can decode,
+    // and its cloudinary derivatives 404 alongside it. So collect every URL Alchemy gives
+    // us plus gateway variants of the raw metadata URI, and let the <img> fall through them.
+    function nftImageCandidates(img, rawImage) {
+        const list = [];
+        const push = u => {
+            if (u && typeof u === 'string' && list.indexOf(u) === -1) list.push(u);
+        };
+        img = img || {};
+        push(img.cachedUrl);
+        push(img.pngUrl);        // full-size conversion; preferred over the 250px thumbnail
+        push(img.thumbnailUrl);
+        if (img.originalUrl) httpCandidates(img.originalUrl).forEach(push);
+        if (rawImage) {
+            if (rawImage.startsWith('data:') || rawImage.trim().startsWith('<svg')) push(resolveImageUrl(rawImage));
+            else httpCandidates(rawImage).forEach(push);
+        }
+        return list;
+    }
+
     // --- Alchemy NFT API ---------------------------------------------------
     function alchemyNftBase(chain) {
         return 'https://' + chain.alchemyNetwork + '.g.alchemy.com/nft/v3/' + encodeURIComponent(alchemyApiKey);
@@ -7830,8 +7864,9 @@ SOL,100</pre></div>
                 const c = n.contract || {};
                 const osm = c.openSeaMetadata || {};
                 const img = n.image || {};
-                // cachedUrl is Alchemy's own CDN copy and is the one that reliably loads.
-                const image = img.cachedUrl || img.pngUrl || img.thumbnailUrl || img.originalUrl || '';
+                const rawImage = (n.raw && n.raw.metadata && n.raw.metadata.image) || '';
+                const candidates = nftImageCandidates(img, rawImage);
+                const image = candidates[0] || '';
                 const floorEth = typeof osm.floorPrice === 'number' && osm.floorPrice > 0 ? osm.floorPrice : 0;
 
                 ledger.set(key, {
@@ -7840,6 +7875,7 @@ SOL,100</pre></div>
                     collection: osm.collectionName || c.name || c.symbol || '',
                     tokenName: n.name || '',
                     image,
+                    imageCandidates: candidates,
                     floorEth,
                     // Alchemy's own spam verdict — far better than anything we can infer client-side.
                     alchemySpam: c.isSpam === true || c.isSpam === 'true' ||
@@ -8250,9 +8286,27 @@ SOL,100</pre></div>
             const img = document.createElement('img');
             img.className = 'nft-scan-thumb';
             img.loading = 'lazy';
-            img.src = r.image || r.placeholder;
             img.alt = r.collection;
-            img.addEventListener('error', () => { if (img.src !== r.placeholder) img.src = r.placeholder; });
+            // Walk the candidates until one decodes; the winner is written back to r.image so
+            // "Add Selected" stores a URL that's been proven to render.
+            let ci = 0;
+            const tryNext = () => {
+                const list = r.imageCandidates || [];
+                if (ci < list.length) { img.src = list[ci++]; return; }
+                r.imageOk = false;
+                r.image = '';
+                img.src = r.placeholder;
+            };
+            img.addEventListener('error', () => {
+                if (img.src === r.placeholder) return; // placeholder itself failed; stop
+                tryNext();
+            });
+            img.addEventListener('load', () => {
+                if (img.src === r.placeholder) return;
+                r.image = img.src;
+                r.imageOk = true;
+            });
+            tryNext();
             card.appendChild(img);
 
             const info = document.createElement('div');
@@ -8382,8 +8436,29 @@ SOL,100</pre></div>
         return !r.alreadyAdded && nftScanRowVisible(r);
     }
 
-    // A real image means artwork actually resolved — a placeholder doesn't count.
-    function nftScanHasImage(r) { return !!r.image; }
+    // A real image means artwork actually resolved — a placeholder doesn't count, and neither
+    // does a candidate we've already watched fail to decode.
+    function nftScanHasImage(r) { return r.imageOk === true || (r.imageOk === undefined && !!r.image); }
+
+    // Resolves when the URL either decodes as an image or provably doesn't.
+    function imageLoads(url, timeoutMs) {
+        return new Promise(resolve => {
+            const im = new Image();
+            let settled = false;
+            const finish = ok => { if (!settled) { settled = true; clearTimeout(timer); resolve(ok); } };
+            const timer = setTimeout(() => finish(false), timeoutMs || 8000);
+            im.onload = () => finish(true);
+            im.onerror = () => finish(false);
+            im.src = url;
+        });
+    }
+
+    async function firstLoadableImage(list) {
+        for (const u of (list || [])) {
+            if (await imageLoads(u)) return u;
+        }
+        return '';
+    }
     function nftScanHasFloor(r) { return r.floorUsd > 0; }
 
     // mode: 'all' | 'none' | 'image' | 'floor'. The last two let the user grab everything
@@ -8423,9 +8498,32 @@ SOL,100</pre></div>
     }
 
     // --- adding ------------------------------------------------------------
-    function addSelectedScannedNfts() {
+    async function addSelectedScannedNfts() {
         const picks = nftScanState.results.filter(r => r.selected && nftScanPickable(r));
         if (picks.length === 0) { toast('Nothing selected', 'warning'); return; }
+
+        // The gallery stores one URL per NFT forever, so prove the artwork before committing.
+        // Cards the user scrolled past already proved themselves while rendering; the rest
+        // are checked here, or we'd persist a URL that never renders.
+        const unverified = picks.filter(r => r.imageOk === undefined && (r.imageCandidates || []).length > 0);
+        if (unverified.length > 0) {
+            nftScanState.cancelled = false;
+            showModal('nftScanProgressModal');
+            nftScanProgress('Checking artwork', '0/' + unverified.length + ' — confirming images load');
+            let done = 0;
+            for (let i = 0; i < unverified.length; i += 6) {
+                if (nftScanState.cancelled) break;
+                const batch = unverified.slice(i, i + 6);
+                await Promise.all(batch.map(async r => {
+                    const winner = await firstLoadableImage(r.imageCandidates);
+                    r.image = winner;             // '' falls back to the labelled placeholder
+                    r.imageOk = !!winner;
+                    done++;
+                }));
+                nftScanProgress(null, done + '/' + unverified.length + ' — confirming images load');
+            }
+            closeModal('nftScanProgressModal');
+        }
 
         const existing = galleryNftKeys();
         let added = 0, valued = 0, skipped = 0;
