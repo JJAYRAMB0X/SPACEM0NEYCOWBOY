@@ -599,6 +599,9 @@
         .nft-table-danger:hover:not(:disabled) { background: #ef4444; color: #fff; }
         .nft-table-danger:disabled { opacity: 0.35; cursor: not-allowed; }
         .nft-table tbody tr.picked td { background: rgba(0,212,255,0.12); }
+        /* Priced during this pass — held in an "only unpriced" view on purpose. */
+        .nft-table tbody tr.just-priced td { background: rgba(16,185,129,0.08); }
+        .nft-table tbody tr.just-priced.picked td { background: rgba(0,212,255,0.12); }
 
         .nft-scan-view-btn {
             padding: 4px 11px; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 0.7rem;
@@ -1961,11 +1964,11 @@ SOL,100</pre></div>
             <div id="reorderHint" style="font-size:0.7rem;color:#666;margin:-4px 0 10px">Drag to rearrange, or sort automatically. Order is saved as you go.</div>
             <div id="reorderTableTools" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.72rem;color:#aaa">
-                    <input type="checkbox" id="nftTableUnpricedOnly" onchange="renderReorderGrid()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
+                    <input type="checkbox" id="nftTableUnpricedOnly" onchange="onNftTableFilterChange()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
                     <span>Only unpriced</span>
                 </label>
                 <button class="nft-scan-view-btn" id="nftCollSortBtn" style="padding:4px 9px;font-size:0.66rem" onclick="setNftCollSort(nftCollSort === 'value' ? 'name' : 'value')">A–Z</button>
-                <select id="nftTableFilter" onchange="renderReorderGrid()"
+                <select id="nftTableFilter" onchange="onNftTableFilterChange()"
                         style="flex:1;min-width:180px;max-width:320px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)">Select all shown</button>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(false)">Clear</button>
@@ -7692,7 +7695,14 @@ SOL,100</pre></div>
         let n = 0;
         nftGallery.forEach(u => {
             const m = nftMeta[u];
-            if (m && m.contract && collectionKey(m.chain, m.contract) === ck) { nftValues[u] = val; n++; }
+            if (m && m.contract && collectionKey(m.chain, m.contract) === ck) {
+                const was = nftValues[u] || 0;
+                nftValues[u] = val;
+                // Only rows this call actually priced become sticky. Marking already-priced
+                // siblings too would pull them into an "unpriced only" view and grow it.
+                if (val > 0 && !(was > 0)) nftTableJustPriced.add(u);
+                n++;
+            }
         });
         if (n > 0) { saveNftValues(); recalcNftTotal(); }
         return n;
@@ -7700,6 +7710,24 @@ SOL,100</pre></div>
 
     // Rows ticked in the list view, held as gallery URLs so deletions can't shift them.
     let nftTablePicked = new Set();
+    // URLs priced since the "Only unpriced" filter was last (re)applied. Kept visible so a
+    // row does not disappear out from under the value you just typed into it.
+    let nftTableJustPriced = new Set();
+
+    // Any deliberate filter change is a fresh pass, so the stickiness resets.
+    function onNftTableFilterChange() {
+        nftTableJustPriced.clear();
+        renderReorderGrid();
+    }
+
+    function clearNftTableFilters() {
+        const sel = document.getElementById('nftTableFilter');
+        const cb = document.getElementById('nftTableUnpricedOnly');
+        if (sel) sel.value = '';
+        if (cb) cb.checked = false;
+        nftTableJustPriced.clear();
+        renderReorderTable();
+    }
 
     // Removes NFTs from the gallery and cleans up everything keyed off their URL. The viewer
     // stays on whatever it was showing when that survives the cut.
@@ -7855,7 +7883,10 @@ SOL,100</pre></div>
             chain: (nftMeta[url] && nftMeta[url].chain) || '',
             value: nftValues[url] || 0,
         }));
-        if (onlyUnpriced) rows = rows.filter(r => !(r.value > 0));
+        // A row priced during this pass stays put rather than vanishing mid-edit — otherwise
+        // typing a value removes the row before you can hit "→ all" on it. Re-ticking the
+        // checkbox (or clearing filters) drops them and shows what is genuinely left.
+        if (onlyUnpriced) rows = rows.filter(r => !(r.value > 0) || nftTableJustPriced.has(r.url));
         if (q) rows = rows.filter(r => r.collection.toLowerCase() === q); // dropdown = exact
 
         const { col, dir } = nftTableSort;
@@ -7939,7 +7970,8 @@ SOL,100</pre></div>
         rows.forEach(r => {
             const tr = document.createElement('tr');
             const picked = nftTablePicked.has(r.url);
-            tr.className = (picked ? 'picked' : '') + (!(r.value > 0) ? ' unpriced' : '');
+            tr.className = (picked ? 'picked' : '') + (!(r.value > 0) ? ' unpriced' : '') +
+                (nftTableJustPriced.has(r.url) && r.value > 0 ? ' just-priced' : '');
             tr.dataset.idx = r.idx;
 
             const cPick = document.createElement('td');
@@ -8034,6 +8066,7 @@ SOL,100</pre></div>
             const why = [];
             if (collFilter) why.push(sel.options[sel.selectedIndex].textContent.replace(/\s*\(.*\)$/, ''));
             if (unpricedOnly) why.push('unpriced only');
+            const kept = unpricedOnly ? rows.filter(r => r.value > 0).length : 0;
 
             foot.innerHTML =
                 '<span>Showing <strong style="color:#ccd">' + rows.length + '</strong> of ' + nftGallery.length +
@@ -8043,17 +8076,10 @@ SOL,100</pre></div>
                 (unpriced > 0
                     ? '<span style="color:#f59e0b">' + unpriced + ' unpriced in the gallery</span>'
                     : '<span style="color:#10b981">Everything is priced</span>') +
+                (kept > 0 ? '<span style="color:#10b981">' + kept + ' just priced, still shown</span>' : '') +
                 (why.length ? '<button class="nft-scan-view-btn" style="margin-left:auto;padding:3px 10px;font-size:0.66rem" onclick="clearNftTableFilters()">Clear filters</button>' : '') +
                 (collFilter ? '<button class="nft-table-danger"' + (why.length ? '' : ' style="margin-left:auto"') + ' onclick="deleteFilteredCollection()">Delete this whole collection</button>' : '');
         }
-    }
-
-    function clearNftTableFilters() {
-        const sel = document.getElementById('nftTableFilter');
-        const cb = document.getElementById('nftTableUnpricedOnly');
-        if (sel) sel.value = '';
-        if (cb) cb.checked = false;
-        renderReorderTable();
     }
 
     function updateNftTableSelectionUI() {
@@ -8085,6 +8111,8 @@ SOL,100</pre></div>
                 let v = parseFloat(input.value) || 0;
                 if (v > 0 && currencyMode === 'cad' && cadRate) v = v / cadRate;  // stored in USD
                 setNftValue(idx, Math.max(0, v));
+                // Keep the row on screen so "→ all" is still reachable for it.
+                if (v > 0) nftTableJustPriced.add(nftGallery[idx]);
             }
             renderReorderTable();
             if (moveOn) {
