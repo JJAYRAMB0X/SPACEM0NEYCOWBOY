@@ -2018,11 +2018,12 @@ SOL,100</pre></div>
                         style="flex:0 1 150px;min-width:120px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
                 <select id="nftTableFilter" onchange="onNftTableFilterChange()"
                         style="flex:1;min-width:180px;max-width:320px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
+                <button class="nft-scan-view-btn" id="nftRefreshFloorsBtn" style="padding:4px 10px;font-size:0.66rem" onclick="refreshFloorsForShownRows()" title="Recheck the floor price of every collection currently listed — one lookup per collection, applied to all its NFTs">↻ Recheck floors</button>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)">Select all shown</button>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(false)">Clear</button>
                 <button class="nft-table-danger" id="nftTableDeleteBtn" onclick="deleteSelectedTableRows()">Delete selected</button>
             </div>
-            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · Column headers sort this list only; “Gallery order” above rewrites the saved order used by the slideshow and collage</div>
+            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · Right-click a row to recheck its floor, auto-recheck it, or tag it · Column headers sort this list only; “Gallery order” above rewrites the saved order used by the slideshow and collage</div>
             <div class="reorder-grid" id="reorderGrid"></div>
             <div class="nft-table-wrap" id="reorderTableWrap" style="display:none"><table class="nft-table" id="reorderTable"></table></div>
             <div class="nft-table-foot" id="reorderTableFoot" style="display:none"></div>
@@ -2491,6 +2492,8 @@ SOL,100</pre></div>
         loadNftValues();
         loadNftMeta();
         loadNftTags();
+        loadNftFloorAuto();
+        restoreNftFloorAutoTimers();
         bindNftViewerTagging();
         loadAlchemyKey();
         loadNftSpamOverrides();
@@ -8689,6 +8692,14 @@ SOL,100</pre></div>
             tr.className = (picked ? 'picked' : '') + (!(r.value > 0) ? ' unpriced' : '') +
                 (nftTableJustPriced.has(r.url) && r.value > 0 ? ' just-priced' : '');
             tr.dataset.idx = r.idx;
+            // Same menu as the viewer, so floor and tag actions are in one place everywhere.
+            tr.addEventListener('contextmenu', e => {
+                e.preventDefault();
+                e.stopPropagation();
+                openNftTagMenu(r.url, { getBoundingClientRect: () => ({
+                    top: e.clientY, bottom: e.clientY, left: e.clientX, right: e.clientX, width: 0, height: 0,
+                }) });
+            });
 
             const cPick = document.createElement('td');
             const pick = document.createElement('input');
@@ -8750,8 +8761,18 @@ SOL,100</pre></div>
 
             const cVal = document.createElement('td');
             cVal.className = 'nft-table-val' + (r.value > 0 ? '' : ' none');
+            const autoCfg = nftFloorAutoFor(r.url);
             cVal.textContent = r.value > 0 ? curSym() + Math.round(toCur(r.value)).toLocaleString() : 'not priced';
-            cVal.title = 'Click to edit';
+            if (autoCfg) {
+                // A row whose price will change on its own should say so, or the next edit
+                // looks like it was silently reverted.
+                const badge = document.createElement('span');
+                badge.textContent = ' ⏱';
+                badge.style.cssText = 'color:#10b981;font-size:0.65rem';
+                badge.title = 'Floor auto-rechecked every ' + autoCfg.minutes + ' min';
+                cVal.appendChild(badge);
+            }
+            cVal.title = 'Click to edit · right-click the row to recheck the floor';
             cVal.addEventListener('click', () => startEditTableValue(r.idx));
 
             const cAct = document.createElement('td');
@@ -8932,6 +8953,15 @@ SOL,100</pre></div>
         head.textContent = nftCollectionOf(url);
         menu.appendChild(head);
 
+        renderNftFloorSection(menu, url);
+
+        const tagHead = document.createElement('div');
+        tagHead.className = 'nft-tag-menu-head';
+        tagHead.style.borderTop = '1px solid rgba(255,255,255,0.09)';
+        tagHead.style.paddingTop = '7px';
+        tagHead.textContent = 'Tags';
+        menu.appendChild(tagHead);
+
         allNftTags().forEach(t => {
             const on = mine.indexOf(t.name) !== -1;
             const row = document.createElement('div');
@@ -8990,6 +9020,96 @@ SOL,100</pre></div>
         input.addEventListener('click', e => e.stopPropagation());
         box.querySelector('button').addEventListener('click', e => { e.stopPropagation(); commit(); });
         menu.appendChild(box);
+    }
+
+    // The floor half of the NFT menu. Everything here acts on the whole collection, and says
+    // so, because that is what a floor price is.
+    function renderNftFloorSection(menu, url) {
+        const meta = nftMeta[url] || {};
+        const collection = nftCollectionOf(url);
+        const chain = NFT_SCAN_CHAINS[meta.chain || 'ethereum'];
+        const inCollection = meta.contract ? nftGallery.filter(u => nftCollectionKeyOf(u) === nftCollectionKeyOf(url)).length : 0;
+        const value = nftValues[url] || 0;
+
+        const head = document.createElement('div');
+        head.className = 'nft-tag-menu-head';
+        head.textContent = 'Floor price';
+        menu.appendChild(head);
+
+        const cur = document.createElement('div');
+        cur.className = 'nft-tag-row auto';
+        cur.innerHTML = '<span class="nft-tag-check"></span><span>' +
+            (value > 0 ? curSym() + Math.round(toCur(value)).toLocaleString() : 'not priced') +
+            '</span><span class="nft-tag-note">' + (inCollection > 1 ? inCollection + ' in set' : '1 NFT') + '</span>';
+        menu.appendChild(cur);
+
+        // A hand-added NFT has no contract, and a chain with no feed has nothing to ask —
+        // in both cases say why rather than offering a button that can only fail.
+        if (!meta.contract) {
+            const why = document.createElement('div');
+            why.className = 'nft-tag-row auto';
+            why.innerHTML = '<span class="nft-tag-check"></span><span style="color:#778">Added by hand — no collection to price</span>';
+            menu.appendChild(why);
+            return;
+        }
+        if (!chain || !chain.floorSource) {
+            const why = document.createElement('div');
+            why.className = 'nft-tag-row auto';
+            why.innerHTML = '<span class="nft-tag-check"></span><span style="color:#778">' +
+                escapeHtml((chain ? chain.label : 'This chain')) + ' has no floor feed — set values by hand</span>';
+            menu.appendChild(why);
+            return;
+        }
+
+        const refresh = document.createElement('div');
+        refresh.className = 'nft-tag-row';
+        refresh.innerHTML = '<span class="nft-tag-check">↻</span><span>Recheck floor' +
+            (inCollection > 1 ? ' for all ' + inCollection : '') + '</span>';
+        refresh.addEventListener('click', async e => {
+            e.stopPropagation();
+            const label = refresh.querySelector('span:nth-child(2)');
+            const was = label.textContent;
+            label.textContent = 'Checking…';
+            await refreshFloorForNft(url);
+            label.textContent = was;
+            if (nftTagMenuUrl === url) renderNftTagMenu();
+            if (nftTagMenuOnChange) nftTagMenuOnChange();
+        });
+        menu.appendChild(refresh);
+
+        const auto = nftFloorAutoFor(url);
+        const row = document.createElement('div');
+        row.className = 'nft-tag-row';
+        row.innerHTML = '<span class="nft-tag-check">' + (auto ? '✓' : '') + '</span>' +
+            '<span>Auto-recheck</span>' +
+            '<span class="nft-tag-note">' + (auto ? 'every ' + auto.minutes + ' min' : 'off') + '</span>';
+        row.addEventListener('click', e => {
+            e.stopPropagation();
+            const input = menu.querySelector('.nft-floor-mins');
+            toggleNftFloorAuto(url, input ? input.value : NFT_FLOOR_AUTO_DEFAULT_MINUTES);
+            if (nftTagMenuUrl === url) renderNftTagMenu();
+            if (nftTagMenuOnChange) nftTagMenuOnChange();
+        });
+        menu.appendChild(row);
+
+        if (auto) {
+            const box = document.createElement('div');
+            box.className = 'nft-tag-new';
+            box.style.borderTop = 'none';
+            box.innerHTML = '<input type="number" class="nft-floor-mins" min="' + NFT_FLOOR_AUTO_MIN_MINUTES +
+                '" step="1" value="' + auto.minutes + '" title="Minutes between checks (minimum ' + NFT_FLOOR_AUTO_MIN_MINUTES + ')">' +
+                '<button class="nft-scan-view-btn" style="padding:3px 9px;font-size:0.65rem">Set</button>';
+            const input = box.querySelector('input');
+            input.addEventListener('click', e => e.stopPropagation());
+            input.addEventListener('keydown', e => e.stopPropagation());
+            box.querySelector('button').addEventListener('click', e => {
+                e.stopPropagation();
+                setNftFloorAutoInterval(url, input.value);
+                toast('Auto floor every ' + nftFloorAutoFor(url).minutes + ' min for ' + collection, 'success');
+                if (nftTagMenuUrl === url) renderNftTagMenu();
+            });
+            menu.appendChild(box);
+        }
     }
 
     // --- tagging while viewing ---------------------------------------------
@@ -10093,6 +10213,235 @@ SOL,100</pre></div>
         }
     }
 
+    // ============================================================
+    // FLOOR REFRESH — re-price one collection on demand, or on a timer
+    // ============================================================
+    // A floor is a property of a collection, never of a single NFT, so everything here is
+    // keyed by collectionKey(chain, contract) and applies to every NFT sharing it. The scan
+    // sets floors as a default at import time; this is how they get updated afterwards.
+    const NFT_FLOOR_AUTO_MIN_MINUTES = 15;      // these are free third-party APIs, and floors move slowly
+    const NFT_FLOOR_AUTO_DEFAULT_MINUTES = 60;
+    const NFT_ETH_USD_TTL_MS = 5 * 60 * 1000;   // refreshing ten collections shouldn't cost ten ETH quotes
+
+    let ethUsdCache = { usd: 0, at: 0 };
+    async function ethUsdCached() {
+        if (ethUsdCache.usd > 0 && Date.now() - ethUsdCache.at < NFT_ETH_USD_TTL_MS) return ethUsdCache.usd;
+        const usd = await fetchEthUsd();
+        if (usd > 0) ethUsdCache = { usd, at: Date.now() };
+        return usd;
+    }
+
+    // Returns { usd, reason }. usd > 0 means a real quote; otherwise `reason` says why not, so
+    // the caller can tell "this collection has no market" apart from "the lookup failed".
+    async function fetchFloorUsdForCollection(chainKey, contract, collectionName) {
+        const chain = NFT_SCAN_CHAINS[chainKey || 'ethereum'];
+        if (!chain) return { usd: 0, reason: 'unknown chain' };
+        if (!chain.floorSource) return { usd: 0, reason: chain.label + ' has no floor-price feed' };
+
+        if (chain.floorSource === 'alchemy') {
+            if (hasAlchemyKey()) {
+                const eth = await fetchAlchemyFloorEth(chain, contract);
+                if (eth > 0) {
+                    const ethUsd = await ethUsdCached();
+                    if (!(ethUsd > 0)) return { usd: 0, reason: 'the ETH price could not be fetched' };
+                    return { usd: eth * ethUsd, reason: '' };
+                }
+            }
+            // Alchemy had nothing (or there's no key). CoinGecko indexes Ethereum NFTs by
+            // contract, so it's a real second opinion rather than the same answer twice.
+            if (chain.coingeckoPlatform) {
+                const usd = await fetchNftFloorUsdFresh(chain, contract);
+                if (usd > 0) return { usd, reason: '' };
+            }
+            return { usd: 0, reason: 'no marketplace listing found' };
+        }
+
+        if (chain.floorSource === 'coingecko-solana') {
+            let index = null;
+            try { index = await loadCoingeckoSolanaIndex(); } catch (e) {}
+            if (!index) return { usd: 0, reason: "CoinGecko's Solana list could not be loaded" };
+            const id = index.byName.get(normalizeCollectionName(collectionName)) ||
+                       index.bySymbol.get(normalizeCollectionName(collectionName));
+            if (!id) return { usd: 0, reason: 'CoinGecko does not list "' + collectionName + '"' };
+            const usd = await fetchCoingeckoNftFloorUsd(id);
+            return usd > 0 ? { usd, reason: '' } : { usd: 0, reason: 'CoinGecko has no floor for it' };
+        }
+        return { usd: 0, reason: 'no floor-price feed' };
+    }
+
+    // fetchNftFloorUsd memoizes per contract and bails out permanently once rate-limited —
+    // right for one scan, wrong for a refresh, whose whole point is to ask again.
+    async function fetchNftFloorUsdFresh(chain, contract) {
+        const key = String(contract).toLowerCase();
+        delete nftFloorCache[key];
+        const wasLimited = nftScanState.floorRateLimited;
+        nftScanState.floorRateLimited = false;
+        try {
+            const usd = await fetchNftFloorUsd(chain, contract);
+            return typeof usd === 'number' && usd > 0 ? usd : 0;
+        } finally {
+            // Don't let a manual refresh clear a limit the scan is still respecting.
+            if (wasLimited) nftScanState.floorRateLimited = true;
+        }
+    }
+
+    // The one entry point for "re-price this collection now". Writes the new floor onto every
+    // NFT in it and reports what happened; callers only decide how loudly to say it.
+    async function refreshFloorForNft(url, opts) {
+        const quiet = !!(opts && opts.quiet);
+        const meta = nftMeta[url] || {};
+        const collection = nftCollectionOf(url);
+        if (!meta.contract) {
+            if (!quiet) toast('This NFT was added by hand, so it has no collection to price — paste its marketplace link first', 'warning');
+            return { ok: false, reason: 'no contract' };
+        }
+        const { usd, reason } = await fetchFloorUsdForCollection(meta.chain, meta.contract, collection);
+        if (!(usd > 0)) {
+            if (!quiet) toast('No floor found for ' + collection + ' — ' + reason, 'warning');
+            return { ok: false, reason };
+        }
+        const idx = nftGallery.indexOf(url);
+        if (idx === -1) return { ok: false, reason: 'gone from the gallery' };
+        const n = applyValueToCollection(idx, usd);
+        if (!quiet) {
+            toast('Floor updated: ' + collection + ' → ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
+                  ' across ' + n + ' NFT' + (n !== 1 ? 's' : ''), 'success');
+        }
+        return { ok: true, usd, count: n };
+    }
+
+    // --- auto floor updates -------------------------------------------------
+    // Keyed by collection, not by NFT: one timer re-prices every NFT in the collection at once,
+    // so tracking 40 pieces of one collection costs one request, not forty.
+    let nftFloorAuto = {};                    // collectionKey -> { minutes, chain, contract, collection }
+    const nftFloorAutoTimers = new Map();     // collectionKey -> interval id
+    let nftFloorAutoPausedForScreensaver = false;
+
+    function saveNftFloorAuto() {
+        try { localStorage.setItem(lsKey('nftFloorAuto'), JSON.stringify(nftFloorAuto)); } catch (e) {}
+    }
+    function loadNftFloorAuto() {
+        try { const d = JSON.parse(localStorage.getItem(lsKey('nftFloorAuto'))); if (d && typeof d === 'object') nftFloorAuto = d; } catch (e) {}
+    }
+
+    function nftCollectionKeyOf(url) {
+        const m = nftMeta[url] || {};
+        return m.contract ? collectionKey(m.chain, m.contract) : '';
+    }
+    // Always null, never undefined, when there is no config — callers treat the result as an
+    // object or nothing, and two flavours of "nothing" is an easy way to get a subtle bug.
+    function nftFloorAutoFor(url) {
+        const k = nftCollectionKeyOf(url);
+        return (k && nftFloorAuto[k]) || null;
+    }
+
+    async function runNftFloorAutoTick(ck) {
+        const cfg = nftFloorAuto[ck];
+        if (!cfg) { stopNftFloorAuto(ck); return; }
+        // Find any NFT still in the collection — the one it was set up from may be long gone.
+        const url = nftGallery.find(u => nftCollectionKeyOf(u) === ck);
+        if (!url) { stopNftFloorAuto(ck); delete nftFloorAuto[ck]; saveNftFloorAuto(); return; }
+        const res = await refreshFloorForNft(url, { quiet: true });
+        if (res.ok) {
+            console.log('[NFT-Floor] auto: ' + cfg.collection + ' → $' + res.usd.toFixed(2) + ' on ' + res.count + ' NFTs');
+            if (document.getElementById('nftReorderOverlay').classList.contains('active')) renderReorderTable();
+        } else {
+            console.warn('[NFT-Floor] auto failed for ' + cfg.collection + ': ' + res.reason);
+        }
+    }
+
+    function startNftFloorAuto(ck) {
+        stopNftFloorAuto(ck);
+        const cfg = nftFloorAuto[ck];
+        if (!cfg || nftFloorAutoPausedForScreensaver) return;
+        const minutes = Math.max(NFT_FLOOR_AUTO_MIN_MINUTES, Number(cfg.minutes) || NFT_FLOOR_AUTO_DEFAULT_MINUTES);
+        nftFloorAutoTimers.set(ck, setInterval(() => runNftFloorAutoTick(ck), minutes * 60 * 1000));
+    }
+    function stopNftFloorAuto(ck) {
+        const id = nftFloorAutoTimers.get(ck);
+        if (id) { clearInterval(id); nftFloorAutoTimers.delete(ck); }
+    }
+    function restoreNftFloorAutoTimers() { Object.keys(nftFloorAuto).forEach(startNftFloorAuto); }
+    function pauseNftFloorAutoForScreensaver() {
+        nftFloorAutoPausedForScreensaver = true;
+        nftFloorAutoTimers.forEach(id => clearInterval(id));
+        nftFloorAutoTimers.clear();
+    }
+    function resumeNftFloorAutoAfterScreensaver() {
+        nftFloorAutoPausedForScreensaver = false;
+        restoreNftFloorAutoTimers();
+    }
+
+    // Turning it on fires one refresh straight away — otherwise "on, every 60 min" looks
+    // broken for an hour.
+    function toggleNftFloorAuto(url, minutes) {
+        const ck = nftCollectionKeyOf(url);
+        if (!ck) { toast('This NFT has no collection to track', 'warning'); return false; }
+        if (nftFloorAuto[ck]) {
+            stopNftFloorAuto(ck);
+            delete nftFloorAuto[ck];
+            saveNftFloorAuto();
+            toast('Auto floor OFF for ' + nftCollectionOf(url), 'info');
+            return false;
+        }
+        const meta = nftMeta[url] || {};
+        const chain = NFT_SCAN_CHAINS[meta.chain || 'ethereum'];
+        if (!chain || !chain.floorSource) {
+            toast((chain ? chain.label : 'This chain') + ' has no floor-price feed, so there is nothing to poll', 'warning');
+            return false;
+        }
+        const mins = Math.max(NFT_FLOOR_AUTO_MIN_MINUTES, Math.floor(Number(minutes) || NFT_FLOOR_AUTO_DEFAULT_MINUTES));
+        nftFloorAuto[ck] = { minutes: mins, chain: meta.chain || 'ethereum', contract: meta.contract, collection: nftCollectionOf(url) };
+        saveNftFloorAuto();
+        startNftFloorAuto(ck);
+        toast('Auto floor ON for ' + nftCollectionOf(url) + ' — every ' + mins + ' min', 'success');
+        refreshFloorForNft(url, { quiet: true }).then(res => {
+            if (res.ok && document.getElementById('nftReorderOverlay').classList.contains('active')) renderReorderTable();
+        });
+        return true;
+    }
+
+    function setNftFloorAutoInterval(url, minutes) {
+        const ck = nftCollectionKeyOf(url);
+        if (!ck || !nftFloorAuto[ck]) return;
+        nftFloorAuto[ck].minutes = Math.max(NFT_FLOOR_AUTO_MIN_MINUTES, Math.floor(Number(minutes) || NFT_FLOOR_AUTO_DEFAULT_MINUTES));
+        saveNftFloorAuto();
+        startNftFloorAuto(ck);
+    }
+
+    // Refreshes every distinct collection among the rows currently listed. One request per
+    // collection, not per NFT, and spaced out because these are free-tier APIs.
+    let nftBulkFloorRunning = false;
+    async function refreshFloorsForShownRows() {
+        if (nftBulkFloorRunning) return;
+        const rows = nftTableRows();
+        const seen = new Set();
+        const targets = [];
+        rows.forEach(r => {
+            const ck = nftCollectionKeyOf(r.url);
+            if (!ck || seen.has(ck)) return;
+            seen.add(ck);
+            targets.push(r);
+        });
+        if (targets.length === 0) { toast('Nothing here has a collection to price', 'info'); return; }
+
+        nftBulkFloorRunning = true;
+        const btn = document.getElementById('nftRefreshFloorsBtn');
+        let done = 0, updated = 0, missed = 0;
+        for (const r of targets) {
+            if (btn) btn.textContent = '↻ Pricing ' + (++done) + '/' + targets.length + '…';
+            const res = await refreshFloorForNft(r.url, { quiet: true });
+            if (res.ok) updated++; else missed++;
+            renderReorderTable();
+            if (done < targets.length) await delay(1200);
+        }
+        nftBulkFloorRunning = false;
+        if (btn) btn.textContent = '↻ Recheck floors';   // the label was used as the progress readout
+        renderReorderTable();
+        toast('Refreshed ' + updated + ' of ' + targets.length + ' collection' + (targets.length !== 1 ? 's' : '') +
+              (missed > 0 ? ' · ' + missed + ' had no floor to find' : ''), updated > 0 ? 'success' : 'info');
+    }
+
     async function discoverEvmNfts(chain, wallet, ledger) {
         const me = wallet.address.toLowerCase();
 
@@ -10938,6 +11287,9 @@ SOL,100</pre></div>
             pauseAllTokenAutoUpdates();
             syncCustomAutoUpdateBtn();
         }
+        // NFT floor timers too: they re-render the list and would fight the screensaver the
+        // same way a stray renderNetwork did.
+        pauseNftFloorAutoForScreensaver();
     }
 
     function restoreAutoUpdatesAfterScreensaver() {
@@ -10956,6 +11308,7 @@ SOL,100</pre></div>
             syncCustomAutoUpdateBtn();
             resumeAllTokenAutoUpdates();
         }
+        resumeNftFloorAutoAfterScreensaver();
     }
 
     function enterScreensaver() {
