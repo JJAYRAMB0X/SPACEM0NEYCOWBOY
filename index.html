@@ -4370,6 +4370,7 @@ SOL,100</pre></div>
         'base': ['ETH'],
         'linea': ['ETH'],
         'ink': ['ETH'],
+        'robinhood': ['ETH', 'WETH'],
         'avalanche': ['AVAX', 'WAVAX'],
         'fantom': ['FTM', 'WFTM'],
     };
@@ -4468,8 +4469,27 @@ SOL,100</pre></div>
     }
 
     // --- On-chain balance fetchers ---
+    // Where to send eth_* calls for a chain. EVM_RPC_URLS covers everything with a public
+    // endpoint; SCAN_EVM_CHAINS covers the rest via Alchemy. Robinhood is the reason the second
+    // half exists — it has no public RPC at all, so a plain EVM_RPC_URLS lookup can never find
+    // it and Pull Balance would report the chain as unsupported.
+    function evmRpcUrlForChain(chainKey) {
+        const key = (chainKey || '').toLowerCase();
+        if (EVM_RPC_URLS[key]) return EVM_RPC_URLS[key];
+        const scan = SCAN_EVM_CHAINS[key];
+        return scan ? evmScanRpcUrl(scan) : null;
+    }
+
+    // Chains Pull Balance can reach, for the "unsupported chain" message. Aliases like
+    // 'polygon-pos' are folded out so the list reads as chain names rather than duplicates.
+    function supportedEvmChainList() {
+        const keys = Object.keys(EVM_RPC_URLS).filter(k => !k.includes('-'));
+        Object.keys(SCAN_EVM_CHAINS).forEach(k => { if (!keys.includes(k)) keys.push(k); });
+        return keys.join(', ');
+    }
+
     function evmRpcFor(token) {
-        return EVM_RPC_URLS[token.chainId] || null;
+        return evmRpcUrlForChain(token.chainId);
     }
 
     function isNativeForChain(token) {
@@ -4697,11 +4717,11 @@ SOL,100</pre></div>
             }
         } else {
             // Look up RPC URL using normalized chainId
-            const rpcUrl = EVM_RPC_URLS[normChain] || null;
-            console.log('EVM RPC lookup:', { normChain, rpcUrl, supportedChains: Object.keys(EVM_RPC_URLS) });
+            const rpcUrl = evmRpcUrlForChain(normChain);
+            console.log('EVM RPC lookup:', { normChain, rpcUrl, supportedChains: supportedEvmChainList() });
             if (!rpcUrl) {
                 console.groupEnd();
-                return { total: 0, breakdown: [], error: 'Chain "' + (token.chainId || 'unknown') + '" is not in the supported list (' + Object.keys(EVM_RPC_URLS).filter(k => !k.includes('-')).join(', ') + ')' };
+                return { total: 0, breakdown: [], error: 'Chain "' + (token.chainId || 'unknown') + '" is not in the supported list (' + supportedEvmChainList() + ')' };
             }
             const evmWallets = wallets.filter(w => w.chainType === 'evm');
             if (evmWallets.length === 0) { console.groupEnd(); return { total: 0, breakdown: [], error: 'No EVM wallets saved (the token is on ' + token.chainId + ' but you only have Solana wallets)' }; }
