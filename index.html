@@ -1964,6 +1964,7 @@ SOL,100</pre></div>
                     <input type="checkbox" id="nftTableUnpricedOnly" onchange="renderReorderGrid()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
                     <span>Only unpriced</span>
                 </label>
+                <button class="nft-scan-view-btn" id="nftCollSortBtn" style="padding:4px 9px;font-size:0.66rem" onclick="setNftCollSort(nftCollSort === 'value' ? 'name' : 'value')">A–Z</button>
                 <select id="nftTableFilter" onchange="renderReorderGrid()"
                         style="flex:1;min-width:180px;max-width:320px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)">Select all shown</button>
@@ -2062,7 +2063,6 @@ SOL,100</pre></div>
     let nftEstValue = 0; // estimated NFT portfolio value in USD
     let nftValues = {}; // per-NFT values: { url: valueInUSD }
     let nftMeta = {}; // on-chain identity for scanned NFTs: { url: { chain, contract, tokenId, standard, collection } }
-    let nftValueOverride = false; // true if user manually set the total
     let slideshowTimer = null;
     let overlaySlideshowTimer = null;
     let overlayNftIdx = 0;
@@ -2224,8 +2224,14 @@ SOL,100</pre></div>
 
     function saveNFTs() { console.log('NFT order saved:', nftGallery.map((u, i) => (i + 1) + ': ' + u.split('/').pop())); localStorage.setItem(lsKey('nftGallery'), JSON.stringify(nftGallery)); }
     function loadNFTs() { try { const d = JSON.parse(localStorage.getItem(lsKey('nftGallery'))); if (d) { nftGallery = d; updateNFTDisplay(); } } catch(e) {} }
-    function saveNftValue() { localStorage.setItem(lsKey('nftValue'), nftEstValue); localStorage.setItem(lsKey('nftValueOverride'), nftValueOverride ? '1' : '0'); }
-    function loadNftValue() { const v = parseFloat(localStorage.getItem(lsKey('nftValue'))); if (v > 0) nftEstValue = v; nftValueOverride = localStorage.getItem(lsKey('nftValueOverride')) === '1'; }
+    function saveNftValue() { localStorage.setItem(lsKey('nftValue'), nftEstValue); }
+    function loadNftValue() {
+        const v = parseFloat(localStorage.getItem(lsKey('nftValue')));
+        if (v > 0) nftEstValue = v;
+        // The manual-total override is gone. Drop any stale flag so an old save can't
+        // strand the total at a number that no longer matches the per-NFT values.
+        try { localStorage.removeItem(lsKey('nftValueOverride')); } catch (e) {}
+    }
     function saveNftValues() { localStorage.setItem(lsKey('nftValues'), JSON.stringify(nftValues)); }
     function loadNftValues() { try { const d = JSON.parse(localStorage.getItem(lsKey('nftValues'))); if (d && typeof d === 'object') nftValues = d; } catch(e) {} }
     // On-chain identity for scanned NFTs: imageUrl -> { chain, contract, tokenId, standard, collection }.
@@ -2235,7 +2241,7 @@ SOL,100</pre></div>
     function getNftValue(idx) { return nftValues[nftGallery[idx]] || 0; }
     function setNftValue(idx, val) { nftValues[nftGallery[idx]] = val; saveNftValues(); recalcNftTotal(); }
     function sumNftValues() { return nftGallery.reduce((sum, url) => sum + (nftValues[url] || 0), 0); }
-    function recalcNftTotal() { if (!nftValueOverride) { nftEstValue = sumNftValues(); saveNftValue(); } updateNftValueDisplay(); updateTotalValue(); updateStats(); }
+    function recalcNftTotal() { nftEstValue = sumNftValues(); saveNftValue(); updateNftValueDisplay(); updateTotalValue(); updateStats(); }
 
     // ============================================================
     // TOAST & STATUS
@@ -2295,6 +2301,7 @@ SOL,100</pre></div>
         loadNftSpamOverrides();
         loadNftScanChains();
         loadNftScanWalletSel();
+        loadNftCollSort();
         loadNFTs();
         loadWallets();
         fetchCADRate();
@@ -5599,7 +5606,7 @@ SOL,100</pre></div>
         const stockVal  = portfolio.reduce((s, t) => s + (t.assetType === 'stock'  ? (t.value || 0) : 0), 0);
         const metalVal  = portfolio.reduce((s, t) => s + (t.assetType === 'metal'  ? (t.value || 0) : 0), 0);
         const cashVal   = portfolio.reduce((s, t) => s + (t.assetType === 'cash'   ? (t.value || 0) : 0), 0);
-        const nftVal    = nftValueOverride ? (nftEstValue || 0) : sumNftValues();
+        const nftVal    = sumNftValues();
         const total     = cryptoVal + stockVal + metalVal + cashVal + nftVal;
         const el = document.getElementById('totalValue');
         if (total > 0) {
@@ -5649,7 +5656,7 @@ SOL,100</pre></div>
         const ft = document.getElementById('filterToggle');
         const sc = document.getElementById('sortControls');
         const portfolioTotal = portfolio.reduce((s, t) => s + (t.value || 0), 0);
-        const nftValForStats = nftValueOverride ? (nftEstValue || 0) : sumNftValues();
+        const nftValForStats = sumNftValues();
         const grandTotal = portfolioTotal + nftValForStats;
         const hasContent = portfolio.length > 0 || categories.size > 0 || nftValForStats > 0;
         if (!hasContent) { section.style.display = 'none'; ft.classList.remove('visible'); sc.classList.remove('visible'); return; }
@@ -6973,7 +6980,7 @@ SOL,100</pre></div>
             const esc = s => '"' + (s || '').replace(/"/g, '""').replace(/\n/g, ' ') + '"';
             csv += [t.symbol, esc(t.name), t.amount, t.price, t.value, t.liquidity || 0, t.marketCap || 0, t.fdv || 0, t.priceChange24h || 0, t.volume24h || 0, esc(t.address || ''), esc(t.chainId || ''), esc(cats.join(';')), esc(t.notes), t.isCustom || false, esc(t.coinGeckoId || ''), esc(t.logo || ''), esc(t.assetType || 'crypto'), esc(t.exchange || ''), esc(t.metalType || ''), esc(t.cashCurrency || ''), 'USD'].join(',') + '\n';
         });
-        if (nftGallery.length > 0 || nftEstValue > 0) { csv += '\n### NFT_GALLERY ###\n'; if (nftEstValue > 0) csv += '### NFT_EST_VALUE=' + nftEstValue + ' ###\n'; if (nftValueOverride) csv += '### NFT_VALUE_OVERRIDE ###\n'; nftGallery.forEach(u => { const v = nftValues[u] || 0; csv += '"' + u + '"' + (v > 0 ? ',' + v : '') + '\n'; }); }
+        if (nftGallery.length > 0 || nftEstValue > 0) { csv += '\n### NFT_GALLERY ###\n'; if (nftEstValue > 0) csv += '### NFT_EST_VALUE=' + nftEstValue + ' ###\n'; nftGallery.forEach(u => { const v = nftValues[u] || 0; csv += '"' + u + '"' + (v > 0 ? ',' + v : '') + '\n'; }); }
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
         a.download = 'project-x-portfolio-' + new Date().toISOString().split('T')[0] + '.csv';
@@ -7171,7 +7178,7 @@ SOL,100</pre></div>
                 const trimmed = l.trim();
                 const valMatch = trimmed.match(/^### NFT_EST_VALUE=([\d.]+) ###$/);
                 if (valMatch) { nftEstValue = parseFloat(valMatch[1]) || 0; saveNftValue(); }
-                else if (trimmed === '### NFT_VALUE_OVERRIDE ###') { nftValueOverride = true; saveNftValue(); }
+                else if (trimmed === '### NFT_VALUE_OVERRIDE ###') { /* legacy marker; totals are always auto-summed now */ }
                 else {
                     // Parse "url",value or "url"
                     const parts = trimmed.split(/",/);
@@ -7349,19 +7356,14 @@ SOL,100</pre></div>
         updateNftValueDisplay();
     }
 
+    // The total is always the sum of the per-NFT values — those are editable individually,
+    // so a separate manual override for the total was only ever a way to desync the two.
     function updateNftValueDisplay() {
         const el = document.getElementById('nftEstValueDisplay');
         if (!el) return;
-        const autoSum = sumNftValues();
-        const displayVal = nftValueOverride ? nftEstValue : autoSum;
-        const valStr = displayVal > 0 ? curSym() + Math.round(toCur(displayVal)).toLocaleString() : '—';
-        if (nftValueOverride) {
-            el.innerHTML = '<span style="color:#f59e0b;font-style:italic;cursor:pointer" onclick="startEditNftValue()" title="Click to edit manual total">Manual: ' + valStr + '</span>' +
-                '<span onclick="clearNftOverride()" title="Switch to auto-sum" style="cursor:pointer;color:#10b981;font-size:0.65rem;padding:1px 5px;border:1px solid rgba(16,185,129,0.4);border-radius:4px;margin-left:2px;transition:background 0.2s" onmouseenter="this.style.background=\'rgba(16,185,129,0.15)\'" onmouseleave="this.style.background=\'transparent\'">Auto</span>';
-        } else {
-            el.innerHTML = '<span style="color:#888;font-style:italic">' + valStr + '</span>' +
-                '<span onclick="enableManualNftValue()" title="Switch to manual total" style="cursor:pointer;color:#666;font-size:0.65rem;padding:1px 5px;border:1px solid rgba(255,255,255,0.15);border-radius:4px;margin-left:2px;transition:background 0.2s" onmouseenter="this.style.background=\'rgba(255,255,255,0.08)\'" onmouseleave="this.style.background=\'transparent\'">Manual</span>';
-        }
+        const total = sumNftValues();
+        const valStr = total > 0 ? curSym() + Math.round(toCur(total)).toLocaleString() : '—';
+        el.innerHTML = '<span style="color:#888;font-style:italic" title="Sum of every NFT value — click a value under an NFT to change it">' + valStr + '</span>';
     }
 
     function updateIndividualNftValueOverlay(idx, elId) {
@@ -7437,52 +7439,9 @@ SOL,100</pre></div>
         toast('Set ' + shown + ' on ' + n + ' NFTs in ' + name, 'success');
     }
 
-    function enableManualNftValue() {
-        nftValueOverride = true;
-        nftEstValue = sumNftValues() || nftEstValue;
-        saveNftValue();
-        startEditNftValue();
-    }
 
-    function startEditNftValue() {
-        const el = document.getElementById('nftEstValueDisplay');
-        if (!el) return;
-        const currentDisplay = nftEstValue > 0 ? Math.round(toCur(nftEstValue)) : '';
-        el.innerHTML = '<span style="color:#f59e0b;font-size:0.7rem;font-style:italic">Manual:&nbsp;</span>' +
-            '<input type="number" id="nftValueInput" step="any" min="0" placeholder="0" style="width:80px;background:rgba(255,255,255,0.1);border:1px solid rgba(245,158,11,0.4);border-radius:6px;padding:2px 6px;color:#f59e0b;font-size:0.75rem;font-style:italic;text-align:right" value="' + currentDisplay + '">' +
-            '<span onclick="clearNftOverride()" title="Switch to auto-sum" style="cursor:pointer;color:#10b981;font-size:0.65rem;padding:1px 5px;border:1px solid rgba(16,185,129,0.4);border-radius:4px;margin-left:2px" onmouseenter="this.style.background=\'rgba(16,185,129,0.15)\'" onmouseleave="this.style.background=\'transparent\'">Auto</span>';
-        const input = document.getElementById('nftValueInput');
-        input.focus();
-        input.select();
-        input.addEventListener('keydown', e => {
-            e.stopPropagation();
-            if (e.key === 'Enter') { finishEditNftValue(); }
-            if (e.key === 'Escape') { updateNftValueDisplay(); }
-        });
-        input.addEventListener('blur', () => finishEditNftValue());
-    }
 
-    function finishEditNftValue() {
-        const input = document.getElementById('nftValueInput');
-        if (!input) return;
-        let val = parseFloat(input.value) || 0;
-        if (val > 0 && currencyMode === 'cad' && cadRate) val = val / cadRate;
-        nftEstValue = Math.max(0, val);
-        nftValueOverride = true;
-        saveNftValue();
-        updateNftValueDisplay();
-        updateTotalValue();
-        updateStats();
-    }
 
-    function clearNftOverride() {
-        nftValueOverride = false;
-        nftEstValue = sumNftValues();
-        saveNftValue();
-        updateNftValueDisplay();
-        updateTotalValue();
-        updateStats();
-    }
 
     function nextNFT() { if (!nftGallery.length) return; nftIdx = (nftIdx + 1) % nftGallery.length; updateNFTDisplay(); }
     function prevNFT() { if (!nftGallery.length) return; nftIdx = (nftIdx - 1 + nftGallery.length) % nftGallery.length; updateNFTDisplay(); }
@@ -7841,14 +7800,31 @@ SOL,100</pre></div>
         toast('Removed ' + n + ' NFT' + (n !== 1 ? 's' : ''), 'success');
     }
 
-    // Every collection currently in the gallery, with counts, for the filter dropdown.
+    // Every collection currently in the gallery, for the filter dropdown.
+    // 'name' = A–Z; 'value' = most valuable holding first, ties broken by size then name.
+    let nftCollSort = 'name';
+    function setNftCollSort(mode) {
+        nftCollSort = mode === 'value' ? 'value' : 'name';
+        try { localStorage.setItem(lsKey('nftCollSort'), nftCollSort); } catch (e) {}
+        renderReorderTable();
+    }
+    function loadNftCollSort() {
+        try { nftCollSort = localStorage.getItem(lsKey('nftCollSort')) === 'value' ? 'value' : 'name'; } catch (e) {}
+    }
+
     function galleryCollections() {
-        const counts = new Map();
+        const stats = new Map();
         nftGallery.forEach(u => {
             const c = nftCollectionOf(u);
-            counts.set(c, (counts.get(c) || 0) + 1);
+            const s = stats.get(c) || { count: 0, value: 0 };
+            s.count++;
+            s.value += nftValues[u] || 0;
+            stats.set(c, s);
         });
-        return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+        const rows = [...stats.entries()].map(([name, s]) => [name, s.count, s.value]);
+        return nftCollSort === 'value'
+            ? rows.sort((a, b) => b[2] - a[2] || b[1] - a[1] || a[0].localeCompare(b[0]))
+            : rows.sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
     }
 
     function nftTableRows() {
@@ -7889,9 +7865,19 @@ SOL,100</pre></div>
         const keep = sel.value;
         const colls = galleryCollections();
         sel.innerHTML = '<option value="">All collections (' + nftGallery.length + ')</option>' +
-            colls.map(([c, n]) => '<option value="' + escapeHtml(c.toLowerCase()) + '">' + escapeHtml(c) + ' (' + n + ')</option>').join('');
+            colls.map(([c, n, v]) => '<option value="' + escapeHtml(c.toLowerCase()) + '">' + escapeHtml(c) + ' (' + n +
+                (nftCollSort === 'value' && v > 0 ? ' · ' + curSym() + Math.round(toCur(v)).toLocaleString() : '') +
+                ')</option>').join('');
         // Keep the current filter if that collection still exists after a delete.
         sel.value = colls.some(([c]) => c.toLowerCase() === keep) ? keep : '';
+
+        const btn = document.getElementById('nftCollSortBtn');
+        if (btn) {
+            btn.textContent = nftCollSort === 'value' ? '$↓' : 'A–Z';
+            btn.title = nftCollSort === 'value'
+                ? 'Collections listed by total value — click for A–Z'
+                : 'Collections listed alphabetically — click for most valuable first';
+        }
     }
 
     function deleteFilteredCollection() {
