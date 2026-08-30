@@ -1604,6 +1604,15 @@
                         <div style="font-size:0.7rem;color:#888;margin-bottom:6px">Chains to scan</div>
                         <div id="nftScanChainPicker" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
                     </div>
+                    <div style="margin:12px 0 4px">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+                            <span style="font-size:0.7rem;color:#888">Wallets to scan</span>
+                            <button class="nft-scan-view-btn" style="padding:2px 9px;font-size:0.65rem" onclick="setAllNftScanWallets(true)">All</button>
+                            <button class="nft-scan-view-btn" style="padding:2px 9px;font-size:0.65rem" onclick="setAllNftScanWallets(false)">None</button>
+                            <span id="nftScanWalletCount" style="font-size:0.65rem;color:#666;margin-left:auto"></span>
+                        </div>
+                        <div id="nftScanWalletPicker" style="max-height:190px;overflow-y:auto;padding-right:2px"></div>
+                    </div>
                     <div id="nftScanWalletInfo" class="modal-hint" style="margin-bottom:10px"></div>
                     <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 12px;margin-bottom:12px">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -1617,9 +1626,10 @@
                         </div>
                         <div class="modal-hint" style="margin-top:6px;line-height:1.5">A key is built in, so this is optional — set your own if the shared one hits its free-tier limit. Saved to this browser only. "All NFTs ever owned" always uses Etherscan.</div>
                     </div>
-                    <div style="display:flex;gap:10px;justify-content:flex-end">
+                    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
                         <button class="btn btn-secondary" onclick="closeNftScanOptions()">Back</button>
-                        <button class="btn btn-primary" onclick="startNftScan()">Start Scan</button>
+                        <button class="btn btn-secondary" onclick="startNftScan(true)" title="Ignore the selection above and scan every eligible wallet">Scan all wallets</button>
+                        <button class="btn btn-primary" onclick="startNftScan()">Scan Selected</button>
                     </div>
                 </div>
             </div>
@@ -2246,6 +2256,7 @@ SOL,100</pre></div>
         loadAlchemyKey();
         loadNftSpamOverrides();
         loadNftScanChains();
+        loadNftScanWalletSel();
         loadNFTs();
         loadWallets();
         fetchCADRate();
@@ -7940,6 +7951,7 @@ SOL,100</pre></div>
         if (!activeNftScanChains().length) { nftScanChains[key] = true; toast('At least one chain has to stay selected', 'warning'); }
         saveNftScanChains();
         renderNftScanChainPicker();
+        renderNftScanWalletPicker();   // eligibility depends on which chains are on
     }
 
     // cloudflare-ipfs.com was retired and now fails every request. Public gateways are
@@ -8015,18 +8027,9 @@ SOL,100</pre></div>
 
     function openNftScanOptions() {
         loadWallets();
-        const eligible = nftScanEligibleWallets();
-        const info = document.getElementById('nftScanWalletInfo');
-        if (info) {
-            if (eligible.length === 0) {
-                info.innerHTML = '<span style="color:#f59e0b">No Ethereum wallets saved yet — add one in the Wallet Manager first.</span>';
-            } else {
-                info.textContent = 'Will scan ' + eligible.length + ' wallet' + (eligible.length !== 1 ? 's' : '') + ': ' +
-                    eligible.map(w => w.label).join(', ');
-            }
-        }
         refreshAlchemyKeyUI();
         renderNftScanChainPicker();
+        renderNftScanWalletPicker();
         document.getElementById('nftScanIntro').style.display = 'none';
         document.getElementById('nftScanOptions').style.display = 'block';
     }
@@ -8088,9 +8091,94 @@ SOL,100</pre></div>
         toast(v ? 'Using your Alchemy key on this browser' : 'Reverted to the built-in Alchemy key', 'success');
     }
 
+    // Wallets whose chain type any selected chain can actually scan.
     function nftScanEligibleWallets() {
         const types = new Set(activeNftScanChains().map(k => NFT_SCAN_CHAINS[k].walletChainType));
         return wallets.filter(w => types.has(w.chainType) && w.address);
+    }
+
+    // Stored as opt-OUT (only false is recorded), so a newly added wallet is included by
+    // default rather than silently missing from the next scan.
+    let nftScanWalletSel = {};
+    function loadNftScanWalletSel() {
+        try {
+            const d = JSON.parse(localStorage.getItem(lsKey('nftScanWallets')));
+            if (d && typeof d === 'object') nftScanWalletSel = d;
+        } catch (e) {}
+    }
+    function saveNftScanWalletSel() {
+        try { localStorage.setItem(lsKey('nftScanWallets'), JSON.stringify(nftScanWalletSel)); } catch (e) {}
+    }
+    function isNftWalletSelected(id) { return nftScanWalletSel[id] !== false; }
+    function nftScanSelectedWallets() { return nftScanEligibleWallets().filter(w => isNftWalletSelected(w.id)); }
+
+    function toggleNftScanWallet(id) {
+        nftScanWalletSel[id] = !isNftWalletSelected(id);
+        saveNftScanWalletSel();
+        renderNftScanWalletPicker();
+    }
+
+    function setAllNftScanWallets(on) {
+        nftScanEligibleWallets().forEach(w => { nftScanWalletSel[w.id] = !!on; });
+        saveNftScanWalletSel();
+        renderNftScanWalletPicker();
+    }
+
+    function renderNftScanWalletPicker() {
+        const box = document.getElementById('nftScanWalletPicker');
+        const count = document.getElementById('nftScanWalletCount');
+        if (!box) return;
+        const eligible = nftScanEligibleWallets();
+
+        if (eligible.length === 0) {
+            box.innerHTML = '<div style="text-align:center;color:#666;font-size:0.75rem;padding:14px">' +
+                'No wallets match the selected chains — add one in the Wallet Manager.</div>';
+            if (count) count.textContent = '';
+            renderNftScanWalletSummary();
+            return;
+        }
+
+        box.innerHTML = '';
+        eligible.forEach(w => {
+            const on = isNftWalletSelected(w.id);
+            const short = w.address.slice(0, 6) + '…' + w.address.slice(-4);
+            const badgeColor = w.chainType === 'solana' ? '#9945FF' : '#627EEA';
+            const badgeLabel = w.chainType === 'solana' ? 'SOL' : 'EVM';
+
+            const row = document.createElement('label');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 10px;margin-bottom:6px;cursor:pointer;' +
+                'background:' + (on ? 'rgba(0,212,255,0.08)' : 'rgba(255,255,255,0.04)') + ';' +
+                'border:1px solid ' + (on ? 'rgba(0,212,255,0.45)' : 'rgba(255,255,255,0.08)') + ';border-radius:10px;transition:all 0.15s';
+            row.innerHTML =
+                '<input type="checkbox" ' + (on ? 'checked' : '') + ' style="width:15px;height:15px;cursor:pointer;accent-color:#00d4ff;flex:0 0 auto">' +
+                '<span style="background:' + badgeColor + '33;border:1px solid ' + badgeColor + ';color:' + badgeColor + ';font-size:0.6rem;padding:2px 6px;border-radius:6px;font-weight:600;flex:0 0 auto">' + badgeLabel + '</span>' +
+                '<div style="flex:1;min-width:0">' +
+                    '<div style="font-weight:600;color:' + (on ? '#e2e8f0' : '#8a8a99') + ';font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(w.label) + '</div>' +
+                    '<div style="font-size:0.63rem;color:#777;font-family:monospace" title="' + escapeHtml(w.address) + '">' + escapeHtml(short) + '</div>' +
+                '</div>';
+            row.querySelector('input').addEventListener('change', () => toggleNftScanWallet(w.id));
+            box.appendChild(row);
+        });
+
+        const sel = nftScanSelectedWallets().length;
+        if (count) count.textContent = sel + ' of ' + eligible.length + ' selected';
+        renderNftScanWalletSummary();
+    }
+
+    function renderNftScanWalletSummary() {
+        const info = document.getElementById('nftScanWalletInfo');
+        if (!info) return;
+        const eligible = nftScanEligibleWallets();
+        const picked = nftScanSelectedWallets();
+        if (eligible.length === 0) {
+            info.innerHTML = '<span style="color:#f59e0b">No eligible wallets saved yet — add one in the Wallet Manager first.</span>';
+        } else if (picked.length === 0) {
+            info.innerHTML = '<span style="color:#f59e0b">Nothing selected — tick a wallet, or use “Scan all wallets”.</span>';
+        } else {
+            const chains = activeNftScanChains().map(k => NFT_SCAN_CHAINS[k].label).join(', ');
+            info.textContent = 'Will scan ' + picked.length + ' wallet' + (picked.length !== 1 ? 's' : '') +
+                ' across ' + chains + ': ' + picked.map(w => w.label).join(', ');
+        }
     }
 
     function setNftScanMode(mode) {
@@ -8125,11 +8213,14 @@ SOL,100</pre></div>
     }
 
     // --- main flow ---------------------------------------------------------
-    async function startNftScan() {
+    // scanAll ignores the per-wallet selection and covers every eligible wallet.
+    async function startNftScan(scanAll) {
         if (nftScanState.running) return;
         loadWallets();
-        const eligible = nftScanEligibleWallets();
-        if (eligible.length === 0) { toast('Add an Ethereum wallet first', 'warning'); return; }
+        const all = nftScanEligibleWallets();
+        if (all.length === 0) { toast('No wallets match the selected chains — add one first', 'warning'); return; }
+        const eligible = scanAll ? all : nftScanSelectedWallets();
+        if (eligible.length === 0) { toast('No wallets selected — tick one, or use "Scan all wallets"', 'warning'); return; }
 
         // Alchemy is the fast, complete path but it only knows what a wallet holds *now*.
         // "All ever owned" is a history question, so it stays on Etherscan transfers.
