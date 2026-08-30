@@ -560,6 +560,33 @@
         .nft-scan-badge { position: absolute; top: 7px; right: 7px; font-size: 0.55rem; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,0.8); color: #f59e0b; border: 1px solid rgba(245,158,11,0.35); z-index: 3; }
         .nft-scan-badge.spam { color: #ef4444; border-color: rgba(239,68,68,0.35); }
         .nft-scan-empty { grid-column: 1 / -1; padding: 30px 10px; text-align: center; color: #666; font-size: 0.8rem; }
+        /* ===== NFT TABLE (line-by-line) VIEW ===== */
+        .nft-table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; }
+        .nft-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+        .nft-table thead th {
+            position: sticky; top: 0; z-index: 2; background: #12121e; color: #9aa;
+            text-align: left; font-weight: 600; padding: 8px 10px; white-space: nowrap;
+            border-bottom: 1px solid rgba(255,255,255,0.14); cursor: pointer; user-select: none;
+        }
+        .nft-table thead th:hover { color: #00d4ff; }
+        .nft-table thead th.sorted { color: #00d4ff; }
+        .nft-table thead th.nosort { cursor: default; }
+        .nft-table thead th.nosort:hover { color: #9aa; }
+        .nft-table td { padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #ccd; vertical-align: middle; }
+        .nft-table tbody tr:hover { background: rgba(0,212,255,0.06); }
+        .nft-table tbody tr.unpriced td { background: rgba(245,158,11,0.05); }
+        .nft-table tbody tr.unpriced:hover td { background: rgba(245,158,11,0.1); }
+        .nft-table-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 5px; background: rgba(0,0,0,0.4); display: block; }
+        .nft-table-coll { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .nft-table-id { color: #778; font-family: monospace; font-size: 0.7rem; }
+        .nft-table-val { text-align: right; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .nft-table-val:hover { color: #00d4ff; text-decoration: underline dotted; }
+        .nft-table-val.none { color: #f59e0b; font-style: italic; }
+        .nft-table-val input { width: 92px; background: rgba(255,255,255,0.14); border: 1px solid rgba(0,212,255,0.55); border-radius: 5px; padding: 2px 6px; color: #fff; font-size: 0.74rem; font-family: inherit; text-align: right; }
+        .nft-table-apply { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.16); color: #99a; border-radius: 6px; padding: 2px 8px; font-size: 0.66rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
+        .nft-table-apply:hover { border-color: rgba(0,212,255,0.5); color: #00d4ff; }
+        .nft-table-foot { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 8px 2px 0; font-size: 0.72rem; color: #889; }
+
         .nft-scan-view-btn {
             padding: 4px 11px; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 0.7rem;
             background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); color: #999; transition: all 0.18s;
@@ -1878,6 +1905,7 @@ SOL,100</pre></div>
                     <div class="fs-title">⊞ Reorder NFTs</div>
                     <!-- Kept on the left, well away from the destructive Close button. -->
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="exportNftCollage()" title="Save the whole gallery as one JPG">📸 Save collage</button>
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" id="reorderViewToggle" onclick="toggleReorderView()" title="Switch between tiles and an editable list">☰ List view</button>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('value')" title="Collections led by your single best piece — each collection still stays together">💎 Most valuable</button>
@@ -1886,7 +1914,18 @@ SOL,100</pre></div>
                 </div>
             </div>
             <div id="reorderHint" style="font-size:0.7rem;color:#666;margin:-4px 0 10px">Drag to rearrange, or sort automatically. Order is saved as you go.</div>
+            <div id="reorderTableTools" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.72rem;color:#aaa">
+                    <input type="checkbox" id="nftTableUnpricedOnly" onchange="renderReorderGrid()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
+                    <span>Only unpriced</span>
+                </label>
+                <input type="search" id="nftTableFilter" oninput="renderReorderGrid()" placeholder="Filter by collection…" autocomplete="off"
+                       style="flex:1;min-width:160px;max-width:280px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit">
+                <span style="font-size:0.66rem;color:#666">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection</span>
+            </div>
             <div class="reorder-grid" id="reorderGrid"></div>
+            <div class="nft-table-wrap" id="reorderTableWrap" style="display:none"><table class="nft-table" id="reorderTable"></table></div>
+            <div class="nft-table-foot" id="reorderTableFoot" style="display:none"></div>
         </div>
     </div>
 
@@ -7344,11 +7383,9 @@ SOL,100</pre></div>
             'Cancel — only this one keeps the new value.');
         if (!ok) return;
 
-        siblings.forEach(u => { nftValues[u] = val; });
-        saveNftValues();
-        recalcNftTotal();
+        const n = applyValueToCollection(idx, val);
         if (elId) updateIndividualNftValueOverlay(idx, elId);
-        toast('Set ' + shown + ' on ' + (siblings.length + 1) + ' NFTs in ' + name, 'success');
+        toast('Set ' + shown + ' on ' + n + ' NFTs in ' + name, 'success');
     }
 
     function enableManualNftValue() {
@@ -7589,7 +7626,205 @@ SOL,100</pre></div>
         }, 'image/jpeg', 0.92);
     }
 
+    // --- reorder module: view switching ------------------------------------
+    let nftReorderView = 'grid';           // 'grid' = draggable tiles, 'table' = editable list
+    let nftTableSort = { col: 'idx', dir: 1 };
+
+    function toggleReorderView() {
+        nftReorderView = nftReorderView === 'table' ? 'grid' : 'table';
+        renderReorderGrid();
+    }
+
     function renderReorderGrid() {
+        const table = nftReorderView === 'table';
+        const show = (id, on, mode) => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = on ? (mode || 'block') : 'none';
+        };
+        show('reorderGrid', !table, 'grid');
+        show('reorderTableWrap', table);
+        show('reorderTableFoot', table, 'flex');
+        show('reorderTableTools', table, 'flex');
+        const btn = document.getElementById('reorderViewToggle');
+        if (btn) btn.textContent = table ? '▦ Tile view' : '☰ List view';
+        const hint = document.getElementById('reorderHint');
+        if (hint) hint.textContent = table
+            ? 'Sorting here is for reading only — it does not change the saved order. Use the buttons above to commit an order.'
+            : 'Drag to rearrange, or sort automatically. Order is saved as you go.';
+        return table ? renderReorderTable() : renderReorderTiles();
+    }
+
+    // Applies one value across every gallery NFT sharing a contract. Returns how many changed.
+    function applyValueToCollection(idx, val) {
+        const meta = nftMeta[nftGallery[idx]];
+        if (!meta || !meta.contract) return 0;
+        const ck = collectionKey(meta.chain, meta.contract);
+        let n = 0;
+        nftGallery.forEach(u => {
+            const m = nftMeta[u];
+            if (m && m.contract && collectionKey(m.chain, m.contract) === ck) { nftValues[u] = val; n++; }
+        });
+        if (n > 0) { saveNftValues(); recalcNftTotal(); }
+        return n;
+    }
+
+    function nftTableRows() {
+        const onlyUnpriced = (document.getElementById('nftTableUnpricedOnly') || {}).checked;
+        const q = ((document.getElementById('nftTableFilter') || {}).value || '').trim().toLowerCase();
+        let rows = nftGallery.map((url, idx) => ({
+            idx, url,
+            collection: nftCollectionOf(url),
+            tokenId: (nftMeta[url] && nftMeta[url].tokenId) != null ? String(nftMeta[url].tokenId) : '',
+            chain: (nftMeta[url] && nftMeta[url].chain) || '',
+            value: nftValues[url] || 0,
+        }));
+        if (onlyUnpriced) rows = rows.filter(r => !(r.value > 0));
+        if (q) rows = rows.filter(r => r.collection.toLowerCase().indexOf(q) !== -1);
+
+        const { col, dir } = nftTableSort;
+        rows.sort((a, b) => {
+            let c = 0;
+            if (col === 'value') c = a.value - b.value;
+            else if (col === 'collection') c = a.collection.localeCompare(b.collection) || a.value - b.value;
+            else if (col === 'token') c = a.tokenId.localeCompare(b.tokenId, undefined, { numeric: true });
+            else if (col === 'chain') c = a.chain.localeCompare(b.chain);
+            else c = a.idx - b.idx;
+            return c * dir || a.idx - b.idx;
+        });
+        return rows;
+    }
+
+    function sortNftTable(col) {
+        if (nftTableSort.col === col) nftTableSort.dir *= -1;
+        else nftTableSort = { col, dir: col === 'value' ? -1 : 1 };
+        renderReorderTable();
+    }
+
+    function renderReorderTable() {
+        const table = document.getElementById('reorderTable');
+        if (!table) return;
+        const rows = nftTableRows();
+        const arrow = c => nftTableSort.col === c ? (nftTableSort.dir === 1 ? ' ▲' : ' ▼') : '';
+        const th = (c, label, extra) => '<th class="' + (nftTableSort.col === c ? 'sorted' : '') + '"' +
+            ' onclick="sortNftTable(\'' + c + '\')"' + (extra || '') + '>' + label + arrow(c) + '</th>';
+
+        table.innerHTML =
+            '<thead><tr>' +
+              th('idx', '#', ' style="width:52px"') +
+              '<th class="nosort" style="width:44px"></th>' +
+              th('collection', 'Collection') +
+              th('token', 'Token') +
+              th('chain', 'Chain') +
+              th('value', 'Value', ' style="text-align:right"') +
+              '<th class="nosort" style="width:60px"></th>' +
+            '</tr></thead><tbody></tbody>';
+
+        const tbody = table.querySelector('tbody');
+        rows.forEach(r => {
+            const tr = document.createElement('tr');
+            if (!(r.value > 0)) tr.className = 'unpriced';
+            tr.dataset.idx = r.idx;
+
+            const cNum = document.createElement('td');
+            cNum.textContent = r.idx + 1;
+            cNum.style.color = '#667';
+
+            const cImg = document.createElement('td');
+            const im = document.createElement('img');
+            im.className = 'nft-table-thumb';
+            im.loading = 'lazy';
+            bindGalleryNftImage(im, r.idx);
+            cImg.appendChild(im);
+
+            const cColl = document.createElement('td');
+            cColl.innerHTML = '<div class="nft-table-coll" title="' + escapeHtml(r.collection) + '">' + escapeHtml(r.collection) + '</div>';
+
+            const cTok = document.createElement('td');
+            cTok.innerHTML = r.tokenId ? '<span class="nft-table-id">#' + escapeHtml(shortTokenId(r.tokenId)) + '</span>' : '<span style="color:#556">—</span>';
+
+            const cChain = document.createElement('td');
+            cChain.innerHTML = r.chain
+                ? '<span style="color:#778">' + escapeHtml((NFT_SCAN_CHAINS[r.chain] && NFT_SCAN_CHAINS[r.chain].label) || r.chain) + '</span>'
+                : '<span style="color:#556">manual</span>';
+
+            const cVal = document.createElement('td');
+            cVal.className = 'nft-table-val' + (r.value > 0 ? '' : ' none');
+            cVal.textContent = r.value > 0 ? curSym() + Math.round(toCur(r.value)).toLocaleString() : 'not priced';
+            cVal.title = 'Click to edit';
+            cVal.addEventListener('click', () => startEditTableValue(r.idx));
+
+            const cAct = document.createElement('td');
+            if (nftMeta[r.url] && nftMeta[r.url].contract) {
+                const b = document.createElement('button');
+                b.className = 'nft-table-apply';
+                b.textContent = '→ all';
+                b.title = 'Apply this value to every NFT in ' + r.collection;
+                b.addEventListener('click', e => {
+                    e.stopPropagation();
+                    const v = nftValues[r.url] || 0;
+                    if (!(v > 0)) { toast('Set this NFT\'s value first', 'warning'); return; }
+                    const n = applyValueToCollection(r.idx, v);
+                    renderReorderTable();
+                    toast('Applied ' + curSym() + Math.round(toCur(v)).toLocaleString() + ' to ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' in ' + r.collection, 'success');
+                });
+                cAct.appendChild(b);
+            }
+
+            [cNum, cImg, cColl, cTok, cChain, cVal, cAct].forEach(td => tr.appendChild(td));
+            tbody.appendChild(tr);
+        });
+
+        const foot = document.getElementById('reorderTableFoot');
+        if (foot) {
+            const shownVal = rows.reduce((s, r) => s + r.value, 0);
+            const unpriced = nftGallery.filter(u => !(nftValues[u] > 0)).length;
+            foot.innerHTML =
+                '<span>Showing <strong style="color:#ccd">' + rows.length + '</strong> of ' + nftGallery.length + '</span>' +
+                '<span>Listed value <strong style="color:#10b981">' + curSym() + Math.round(toCur(shownVal)).toLocaleString() + '</strong></span>' +
+                '<span>Gallery total <strong style="color:#ccd">' + curSym() + Math.round(toCur(sumNftValues())).toLocaleString() + '</strong></span>' +
+                (unpriced > 0 ? '<span style="color:#f59e0b">' + unpriced + ' still unpriced</span>' : '<span style="color:#10b981">Everything is priced</span>');
+        }
+    }
+
+    // Enter commits and drops to the next row, so a column of values can be typed straight down.
+    function startEditTableValue(idx) {
+        const tr = document.querySelector('#reorderTable tbody tr[data-idx="' + idx + '"]');
+        if (!tr) return;
+        const cell = tr.querySelector('.nft-table-val');
+        if (!cell || cell.querySelector('input')) return;
+        const cur = nftValues[nftGallery[idx]] || 0;
+
+        cell.innerHTML = '<input type="number" step="any" min="0" placeholder="0" value="' + (cur > 0 ? Math.round(toCur(cur)) : '') + '">';
+        const input = cell.querySelector('input');
+        input.focus();
+        input.select();
+        let done = false;
+        const commit = (save, moveOn) => {
+            if (done) return;
+            done = true;
+            if (save) {
+                let v = parseFloat(input.value) || 0;
+                if (v > 0 && currencyMode === 'cad' && cadRate) v = v / cadRate;  // stored in USD
+                setNftValue(idx, Math.max(0, v));
+            }
+            renderReorderTable();
+            if (moveOn) {
+                const rows = [...document.querySelectorAll('#reorderTable tbody tr')];
+                const at = rows.findIndex(t => +t.dataset.idx === idx);
+                const next = rows[at + 1];
+                if (next) startEditTableValue(+next.dataset.idx);
+            }
+        };
+        input.addEventListener('keydown', e => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); commit(true, true); }
+            else if (e.key === 'Tab') { e.preventDefault(); commit(true, true); }
+            else if (e.key === 'Escape') { e.preventDefault(); commit(false, false); }
+        });
+        input.addEventListener('blur', () => commit(true, false));
+    }
+
+    function renderReorderTiles() {
         const grid = document.getElementById('reorderGrid');
         grid.innerHTML = '';
         nftGallery.forEach((url, idx) => {
@@ -7648,10 +7883,16 @@ SOL,100</pre></div>
         },
         // Both L2s below are Alchemy-only: no Etherscan history endpoint and no marketplace
         // floor feed, so they scan current holdings and every value is typed in by hand.
-        ink: {
-            key: 'ink', kind: 'evm', label: 'Ink',
+        polygon: {
+            key: 'polygon', kind: 'evm', label: 'Polygon',
             walletChainType: 'evm',
-            alchemyNetwork: 'ink-mainnet',
+            alchemyNetwork: 'polygon-mainnet',
+            hasFloors: false,
+        },
+        zora: {
+            key: 'zora', kind: 'evm', label: 'Zora',
+            walletChainType: 'evm',
+            alchemyNetwork: 'zora-mainnet',
             hasFloors: false,
         },
         robinhood: {
@@ -7660,11 +7901,22 @@ SOL,100</pre></div>
             alchemyNetwork: 'robinhood-mainnet',
             hasFloors: false,
         },
+        // Alchemy serves Ink over core RPC but not the NFT API — it answers
+        // "This endpoint isn't enabled for that chain or network just yet". Enabling Ink on
+        // the dashboard does not change that, so it stays unselectable until they ship it.
+        ink: {
+            key: 'ink', kind: 'evm', label: 'Ink',
+            walletChainType: 'evm',
+            alchemyNetwork: 'ink-mainnet',
+            hasFloors: false,
+            nftApi: false,
+            unavailableReason: "Alchemy's NFT API doesn't cover Ink yet (RPC only)",
+        },
     };
 
     // Which chains a scan covers. Ethereum only by default — every extra chain is another
     // full pass over every wallet, so the user opts in.
-    let nftScanChains = { ethereum: true, ink: false, robinhood: false };
+    let nftScanChains = { ethereum: true, polygon: false, zora: false, robinhood: false, ink: false };
     function loadNftScanChains() {
         try {
             const d = JSON.parse(localStorage.getItem(lsKey('nftScanChains')));
@@ -7675,10 +7927,15 @@ SOL,100</pre></div>
     function saveNftScanChains() {
         try { localStorage.setItem(lsKey('nftScanChains'), JSON.stringify(nftScanChains)); } catch (e) {}
     }
+    function nftChainSelectable(k) { return NFT_SCAN_CHAINS[k].nftApi !== false; }
     function activeNftScanChains() {
-        return Object.keys(NFT_SCAN_CHAINS).filter(k => nftScanChains[k]);
+        return Object.keys(NFT_SCAN_CHAINS).filter(k => nftScanChains[k] && nftChainSelectable(k));
     }
     function toggleNftScanChain(key) {
+        if (!nftChainSelectable(key)) {
+            toast(NFT_SCAN_CHAINS[key].label + ': ' + NFT_SCAN_CHAINS[key].unavailableReason, 'info');
+            return;
+        }
         nftScanChains[key] = !nftScanChains[key];
         if (!activeNftScanChains().length) { nftScanChains[key] = true; toast('At least one chain has to stay selected', 'warning'); }
         saveNftScanChains();
@@ -7780,13 +8037,15 @@ SOL,100</pre></div>
         wrap.innerHTML = '';
         Object.keys(NFT_SCAN_CHAINS).forEach(k => {
             const chain = NFT_SCAN_CHAINS[k];
-            const on = !!nftScanChains[k];
+            const usable = nftChainSelectable(k);
+            const on = usable && !!nftScanChains[k];
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'nft-scan-view-btn' + (on ? ' active' : '');
+            if (!usable) { b.style.opacity = '0.4'; b.style.textDecoration = 'line-through'; }
             b.textContent = (on ? '✓ ' : '') + chain.label;
-            b.title = chain.hasFloors
-                ? 'Floor prices available'
+            b.title = !usable ? chain.unavailableReason
+                : chain.hasFloors ? 'Floor prices available'
                 : chain.label + ' has no marketplace floor feed — values are typed in by hand';
             b.onclick = () => toggleNftScanChain(k);
             wrap.appendChild(b);
