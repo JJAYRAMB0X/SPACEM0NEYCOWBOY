@@ -1241,6 +1241,12 @@
                 </div>
                 <div class="section-body" id="nftGalleryBody">
                     <button class="btn btn-primary btn-full" onclick="openAddNFTModal()" style="margin-bottom:12px">➕ Add NFT</button>
+                    <!-- Says why the gallery is showing a subset. Without it a filtered
+                         slideshow just looks like most of the collection disappeared. -->
+                    <div id="nftPlayTagChip" style="display:none;align-items:center;gap:6px;justify-content:center;margin-bottom:8px;padding:3px 10px;border:1px solid;border-radius:999px;font-size:0.65rem;font-weight:600">
+                        <span>Showing</span><span class="nft-play-tag-label"></span>
+                        <button onclick="clearNftPlayTag()" title="Show the whole gallery again" style="background:none;border:none;color:inherit;cursor:pointer;font-size:0.75rem;padding:0 0 0 2px;font-family:inherit;opacity:0.7">✕</button>
+                    </div>
                     <div id="nftViewer" class="nft-viewer" style="display:none">
                         <div class="nft-img-wrap">
                             <img id="nftImg" class="nft-img" src="" alt="NFT">
@@ -2160,16 +2166,16 @@ SOL,100</pre></div>
 
     // A shuffle bag rather than plain random: every NFT is shown once before any repeats,
     // and the next pick is never the one already on screen.
-    let nftShuffleBag = [], nftShuffleBagFor = -1;
+    let nftShuffleBag = [], nftShuffleBagFor = '';
     function nextShuffledIdx(current, len) {
         if (len <= 1) return 0;
-        if (nftShuffleBagFor !== len || nftShuffleBag.length === 0) {
+        if (nftShuffleBagFor !== nftPlayTag + ':' + len || nftShuffleBag.length === 0) {
             nftShuffleBag = Array.from({ length: len }, (_, i) => i);
             for (let i = len - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 const t = nftShuffleBag[i]; nftShuffleBag[i] = nftShuffleBag[j]; nftShuffleBag[j] = t;
             }
-            nftShuffleBagFor = len;
+            nftShuffleBagFor = nftPlayTag + ':' + len;
             const last = nftShuffleBag.length - 1;
             if (nftShuffleBag[last] === current && len > 1) {
                 const t = nftShuffleBag[last]; nftShuffleBag[last] = nftShuffleBag[0]; nftShuffleBag[0] = t;
@@ -2376,6 +2382,92 @@ SOL,100</pre></div>
         try { const d = JSON.parse(localStorage.getItem(lsKey('nftTagsByUrl'))); if (d && typeof d === 'object') nftTagsByUrl = d; } catch (e) {}
     }
 
+    // The tag the gallery is currently focused on: '' means everything. This is a single
+    // app-level setting, not a list-view filter, because the point of tagging was to choose
+    // what the slideshow and the collage show — so the list, the card, the fullscreen viewer,
+    // the screensaver and the collage all read it.
+    let nftPlayTag = '';
+
+    function saveNftPlayTag() {
+        try { localStorage.setItem(lsKey('nftPlayTag'), nftPlayTag); } catch (e) {}
+    }
+    function loadNftPlayTag() {
+        try { nftPlayTag = localStorage.getItem(lsKey('nftPlayTag')) || ''; } catch (e) { nftPlayTag = ''; }
+    }
+
+    // Indices into nftGallery that the filter admits. Order is gallery order, so a filtered
+    // slideshow still runs in the sequence the sort buttons set up.
+    function playableNftIndices() {
+        if (!nftPlayTag) return nftGallery.map((_, i) => i);
+        const out = [];
+        nftGallery.forEach((u, i) => { if (nftHasTag(u, nftPlayTag)) out.push(i); });
+        // Self-heal: deleting the last NFT carrying a tag would otherwise leave the viewer
+        // stuck on an empty set with no obvious way out. Cleared inline rather than through
+        // setNftPlayTag, because this runs during rendering and the setter re-renders.
+        if (!out.length) { nftPlayTag = ''; saveNftPlayTag(); syncNftPlayTagUI(); return nftGallery.map((_, i) => i); }
+        return out;
+    }
+    function playableNftCount() { return playableNftIndices().length; }
+
+    // Position of an index within the filtered set, for "3 / 12" counters.
+    function playablePositionOf(idx) {
+        const at = playableNftIndices().indexOf(idx);
+        return at === -1 ? 0 : at + 1;
+    }
+
+    // Steps to the next/previous admitted index. If the current one is filtered out — which
+    // happens the moment a filter is applied — it enters at the appropriate end.
+    function stepNftIdx(cur, dir) {
+        const list = playableNftIndices();
+        if (!list.length) return cur;
+        const at = list.indexOf(cur);
+        if (at === -1) return dir > 0 ? list[0] : list[list.length - 1];
+        return list[(at + dir + list.length) % list.length];
+    }
+    function shuffleNftIdx(cur) {
+        const list = playableNftIndices();
+        if (list.length <= 1) return list.length ? list[0] : cur;
+        const at = list.indexOf(cur);
+        return list[nextShuffledIdx(at === -1 ? 0 : at, list.length)];
+    }
+
+    function setNftPlayTag(tag) {
+        const next = tag === NFT_TAG_NEW_OPTION ? '' : (tag || '');
+        if (next === nftPlayTag) return;
+        nftPlayTag = next;
+        saveNftPlayTag();
+        nftShuffleBag = []; nftShuffleBagFor = '';   // a different set needs a fresh shuffle bag
+        // Land on something the filter admits rather than sitting on a hidden NFT.
+        if (nftPlayTag) {
+            const list = playableNftIndices();
+            if (list.length && list.indexOf(nftIdx) === -1) nftIdx = list[0];
+            if (list.length && list.indexOf(overlayNftIdx) === -1) overlayNftIdx = list[0];
+            if (list.length && list.indexOf(screensaverNftIdx) === -1) screensaverNftIdx = list[0];
+        }
+        syncNftPlayTagUI();
+        updateNFTDisplay();
+        if (document.getElementById('nftOverlay').classList.contains('active')) updateOverlayNFT();
+        if (screensaverActive) showSsNftImage(screensaverNftIdx);
+    }
+
+    // The chip on the gallery widget, so a filtered slideshow outside the manage overlay
+    // explains itself instead of looking like most of the gallery vanished.
+    function syncNftPlayTagUI() {
+        const el = document.getElementById('nftPlayTagChip');
+        if (!el) return;
+        if (!nftPlayTag) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        const col = nftTagColor(nftPlayTag);
+        el.style.borderColor = col + '99';
+        el.style.color = col;
+        el.querySelector('.nft-play-tag-label').textContent =
+            nftTagLabel(nftPlayTag) + ' · ' + playableNftCount() + ' of ' + nftGallery.length;
+        const sel = document.getElementById('nftTableTagFilter');
+        if (sel && sel.value !== nftPlayTag) sel.value = nftPlayTag;
+    }
+
+    function clearNftPlayTag() { setNftPlayTag(''); renderReorderTable(); }
+
     function nftChainTag(url) { return (nftMeta[url] || {}).chain || NFT_MANUAL_TAG; }
     function isNftChainTag(name) { return name === NFT_MANUAL_TAG || !!NFT_SCAN_CHAINS[name]; }
     // Only tags whose definition still exists count — deleting a tag doesn't have to walk
@@ -2516,6 +2608,7 @@ SOL,100</pre></div>
         loadNftValues();
         loadNftMeta();
         loadNftTags();
+        loadNftPlayTag();
         loadNftFloorAuto();
         restoreNftFloorAutoTimers();
         bindNftViewerTagging();
@@ -2528,6 +2621,7 @@ SOL,100</pre></div>
         loadNftSlideshowPrefs();
         syncNftSlideshowControls();
         loadNFTs();
+        syncNftPlayTagUI();
         loadWallets();
         fetchCADRate();
         fetchGlobalStats();
@@ -7969,7 +8063,7 @@ SOL,100</pre></div>
         if (nftGallery.length === 0) { viewer.style.display = 'none'; empty.style.display = 'block'; return; }
         viewer.style.display = 'block'; empty.style.display = 'none';
         bindGalleryNftImage(document.getElementById('nftImg'), nftIdx);
-        document.getElementById('nftCounter').textContent = (nftIdx + 1) + ' / ' + nftGallery.length;
+        document.getElementById('nftCounter').textContent = playablePositionOf(nftIdx) + ' / ' + playableNftCount();
         updateIndividualNftValueOverlay(nftIdx, 'nftValueOverlay');
         updateNftValueDisplay();
     }
@@ -8061,8 +8155,8 @@ SOL,100</pre></div>
 
 
 
-    function nextNFT() { if (!nftGallery.length) return; nftIdx = (nftIdx + 1) % nftGallery.length; updateNFTDisplay(); }
-    function prevNFT() { if (!nftGallery.length) return; nftIdx = (nftIdx - 1 + nftGallery.length) % nftGallery.length; updateNFTDisplay(); }
+    function nextNFT() { if (!nftGallery.length) return; nftIdx = stepNftIdx(nftIdx, 1); updateNFTDisplay(); }
+    function prevNFT() { if (!nftGallery.length) return; nftIdx = stepNftIdx(nftIdx, -1); updateNFTDisplay(); }
     function deleteNFT() { if (!nftGallery.length || !confirm('Remove this NFT?')) return; if (slideshowTimer) toggleSlideshow(); const delUrl = nftGallery[nftIdx]; nftGallery.splice(nftIdx, 1); if (nftValues[delUrl]) { delete nftValues[delUrl]; saveNftValues(); } if (nftMeta[delUrl]) { delete nftMeta[delUrl]; saveNftMeta(); } if (nftIdx >= nftGallery.length) nftIdx = Math.max(0, nftGallery.length - 1); saveNFTs(); recalcNftTotal(); updateNFTDisplay(); }
     // Both control bars share one setting, so changing it in either place updates the other
     // and restarts whichever slideshow is currently running.
@@ -8087,7 +8181,7 @@ SOL,100</pre></div>
 
     function toggleNftShuffle() {
         nftSlideshowShuffle = !nftSlideshowShuffle;
-        nftShuffleBag = []; nftShuffleBagFor = -1;   // start a fresh pass
+        nftShuffleBag = []; nftShuffleBagFor = '';   // start a fresh pass
         saveNftSlideshowPrefs();
         syncNftSlideshowControls();
         toast(nftSlideshowShuffle ? 'Shuffle on' : 'Shuffle off', 'info');
@@ -8104,7 +8198,7 @@ SOL,100</pre></div>
 
     function advanceSlideshowMain() {
         if (!nftGallery.length) return;
-        if (nftSlideshowShuffle) { nftIdx = nextShuffledIdx(nftIdx, nftGallery.length); updateNFTDisplay(); }
+        if (nftSlideshowShuffle) { nftIdx = shuffleNftIdx(nftIdx); updateNFTDisplay(); }
         else nextNFT();
     }
 
@@ -8116,7 +8210,7 @@ SOL,100</pre></div>
 
     // NFT overlay controls
     function expandNFT() { if (!nftGallery.length) { alert('No NFTs yet!'); return; } overlayNftIdx = nftIdx; updateOverlayNFT(); syncNftSlideshowControls(); document.getElementById('nftOverlay').classList.add('active'); }
-    function updateOverlayNFT() { bindGalleryNftImage(document.getElementById('overlayNFTImg'), overlayNftIdx); document.getElementById('overlayNFTCounter').textContent = (overlayNftIdx+1) + ' / ' + nftGallery.length; updateIndividualNftValueOverlay(overlayNftIdx, 'overlayNftValueOverlay'); }
+    function updateOverlayNFT() { bindGalleryNftImage(document.getElementById('overlayNFTImg'), overlayNftIdx); document.getElementById('overlayNFTCounter').textContent = playablePositionOf(overlayNftIdx) + ' / ' + playableNftCount(); updateIndividualNftValueOverlay(overlayNftIdx, 'overlayNftValueOverlay'); }
 
     // Scanned NFTs carry a candidate list; manually added ones are just their own URL.
     // A hand-set artOverride always leads, and is never discarded by a rescan or repair.
@@ -8131,11 +8225,11 @@ SOL,100</pre></div>
         if (!img || !url) return;
         bindNftImage(img, galleryImageCandidates(url), (nftMeta[url] || {}).placeholder || '');
     }
-    function nextNFTOverlay() { overlayNftIdx = (overlayNftIdx + 1) % nftGallery.length; updateOverlayNFT(); }
-    function prevNFTOverlay() { overlayNftIdx = (overlayNftIdx - 1 + nftGallery.length) % nftGallery.length; updateOverlayNFT(); }
+    function nextNFTOverlay() { overlayNftIdx = stepNftIdx(overlayNftIdx, 1); updateOverlayNFT(); }
+    function prevNFTOverlay() { overlayNftIdx = stepNftIdx(overlayNftIdx, -1); updateOverlayNFT(); }
     function advanceSlideshowOverlay() {
         if (!nftGallery.length) return;
-        if (nftSlideshowShuffle) { overlayNftIdx = nextShuffledIdx(overlayNftIdx, nftGallery.length); updateOverlayNFT(); }
+        if (nftSlideshowShuffle) { overlayNftIdx = shuffleNftIdx(overlayNftIdx); updateOverlayNFT(); }
         else nextNFTOverlay();
     }
 
@@ -8255,7 +8349,11 @@ SOL,100</pre></div>
     }
 
     async function exportNftCollage() {
-        const n = nftGallery.length;
+        // Exports what the gallery is currently showing, so a tag-filtered collage is just
+        // the collage of that tag.
+        const picks = playableNftIndices();
+        const urls = picks.map(i => nftGallery[i]);
+        const n = urls.length;
         if (n === 0) { toast('No NFTs to export', 'warning'); return; }
 
         // Square-ish grid, with the tile size backed off so huge galleries stay within
@@ -8281,7 +8379,7 @@ SOL,100</pre></div>
             if (nftScanState.cancelled) break;
             const batch = [];
             for (let k = i; k < Math.min(i + 8, n); k++) batch.push(k);
-            const imgs = await Promise.all(batch.map(k => firstCorsImage(nftGallery[k])));
+            const imgs = await Promise.all(batch.map(k => firstCorsImage(urls[k])));
             imgs.forEach((im, bi) => {
                 const idx = batch[bi];
                 const x = (idx % cols) * tile;
@@ -8301,7 +8399,7 @@ SOL,100</pre></div>
                     ctx.fillStyle = '#3a3a4e';
                     ctx.font = Math.max(9, Math.floor(tile / 14)) + 'px sans-serif';
                     ctx.textAlign = 'center';
-                    const label = nftCollectionOf(nftGallery[idx]).slice(0, 18);
+                    const label = nftCollectionOf(urls[idx]).slice(0, 18);
                     ctx.fillText(label, x + tile / 2, y + tile / 2);
                     missing++;
                 }
@@ -8387,7 +8485,12 @@ SOL,100</pre></div>
     function onNftTableFilterChange() {
         closeNftTagMenu();   // its anchor row may be filtered out by the change
         const tagSel = document.getElementById('nftTableTagFilter');
-        if (tagSel && tagSel.value === NFT_TAG_NEW_OPTION) handleNewNftTagOption(tagSel);
+        if (tagSel) {
+            if (tagSel.value === NFT_TAG_NEW_OPTION) handleNewNftTagOption(tagSel);
+            // Picking a tag here scopes the whole gallery, not just this list — the slideshow,
+            // the fullscreen viewer, the screensaver and the collage all follow it.
+            setNftPlayTag(tagSel.value);
+        }
         nftTableJustPriced.clear();
         renderReorderGrid();
     }
@@ -8398,6 +8501,7 @@ SOL,100</pre></div>
         const cb = document.getElementById('nftTableUnpricedOnly');
         if (sel) sel.value = '';
         if (tag) tag.value = '';
+        setNftPlayTag('');
         if (cb) cb.checked = false;
         nftTableJustPriced.clear();
         renderReorderTable();
@@ -8670,10 +8774,7 @@ SOL,100</pre></div>
 
     const NFT_TAG_NEW_OPTION = '__new_tag__';
 
-    function nftTableTagFilter() {
-        const v = ((document.getElementById('nftTableTagFilter') || {}).value || '').trim();
-        return v === NFT_TAG_NEW_OPTION ? '' : v;   // the sentinel is an action, not a filter
-    }
+    function nftTableTagFilter() { return nftPlayTag; }
 
     // Rebuilds the tag dropdown. Chain tags come first and are always present; custom tags
     // follow. Counts are of the whole gallery, not the current view, so the number doesn't
@@ -8681,7 +8782,6 @@ SOL,100</pre></div>
     function renderNftTagFilterOptions() {
         const sel = document.getElementById('nftTableTagFilter');
         if (!sel) return;
-        const keep = sel.value;
         const tags = allNftTags();
         const chainTags = tags.filter(t => !t.custom);
         const customTags = tags.filter(t => t.custom);
@@ -8690,7 +8790,7 @@ SOL,100</pre></div>
             (chainTags.length ? '<optgroup label="Chain">' + chainTags.map(opt).join('') + '</optgroup>' : '') +
             (customTags.length ? '<optgroup label="Your tags">' + customTags.map(opt).join('') + '</optgroup>' : '') +
             '<option value="' + NFT_TAG_NEW_OPTION + '">＋ New tag…</option>';
-        sel.value = tags.some(t => t.name === keep) ? keep : '';
+        sel.value = tags.some(t => t.name === nftPlayTag) ? nftPlayTag : '';
     }
 
     // Picking "＋ New tag…" in the filter creates a tag rather than filtering by one. It is
@@ -11514,23 +11614,23 @@ SOL,100</pre></div>
     }
 
     function advanceScreensaverNFT() {
-        if (nftGallery.length <= 1) return;
+        if (playableNftCount() <= 1) return;
         screensaverNftIdx = nftSlideshowShuffle
-            ? nextShuffledIdx(screensaverNftIdx, nftGallery.length)
-            : (screensaverNftIdx + 1) % nftGallery.length;
+            ? shuffleNftIdx(screensaverNftIdx)
+            : stepNftIdx(screensaverNftIdx, 1);
         showSsNftImage(screensaverNftIdx);
     }
 
     function ssNftPrev() {
-        if (nftGallery.length <= 1) return;
-        screensaverNftIdx = (screensaverNftIdx - 1 + nftGallery.length) % nftGallery.length;
+        if (playableNftCount() <= 1) return;
+        screensaverNftIdx = stepNftIdx(screensaverNftIdx, -1);
         showSsNftImage(screensaverNftIdx);
         if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs()); }
     }
 
     function ssNftNext() {
-        if (nftGallery.length <= 1) return;
-        screensaverNftIdx = (screensaverNftIdx + 1) % nftGallery.length;
+        if (playableNftCount() <= 1) return;
+        screensaverNftIdx = stepNftIdx(screensaverNftIdx, 1);
         showSsNftImage(screensaverNftIdx);
         if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs()); }
     }
