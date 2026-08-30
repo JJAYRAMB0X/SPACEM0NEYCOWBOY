@@ -8026,14 +8026,34 @@ SOL,100</pre></div>
             const shownVal = rows.reduce((s, r) => s + r.value, 0);
             const unpriced = nftGallery.filter(u => !(nftValues[u] > 0)).length;
             const sel = document.getElementById('nftTableFilter');
-            const filtered = sel && sel.value;
+            const collFilter = sel && sel.value;
+            const unpricedOnly = (document.getElementById('nftTableUnpricedOnly') || {}).checked;
+
+            // The two filters stack. Saying so is the difference between "70 still unpriced"
+            // next to "Showing 1" reading as a bug and reading as a narrowed view.
+            const why = [];
+            if (collFilter) why.push(sel.options[sel.selectedIndex].textContent.replace(/\s*\(.*\)$/, ''));
+            if (unpricedOnly) why.push('unpriced only');
+
             foot.innerHTML =
-                '<span>Showing <strong style="color:#ccd">' + rows.length + '</strong> of ' + nftGallery.length + '</span>' +
+                '<span>Showing <strong style="color:#ccd">' + rows.length + '</strong> of ' + nftGallery.length +
+                    (why.length ? ' <span style="color:#00d4ff">· ' + escapeHtml(why.join(' + ')) + '</span>' : '') + '</span>' +
                 '<span>Listed value <strong style="color:#10b981">' + curSym() + Math.round(toCur(shownVal)).toLocaleString() + '</strong></span>' +
                 '<span>Gallery total <strong style="color:#ccd">' + curSym() + Math.round(toCur(sumNftValues())).toLocaleString() + '</strong></span>' +
-                (unpriced > 0 ? '<span style="color:#f59e0b">' + unpriced + ' still unpriced</span>' : '<span style="color:#10b981">Everything is priced</span>') +
-                (filtered ? '<button class="nft-table-danger" style="margin-left:auto" onclick="deleteFilteredCollection()">Delete this whole collection</button>' : '');
+                (unpriced > 0
+                    ? '<span style="color:#f59e0b">' + unpriced + ' unpriced in the gallery</span>'
+                    : '<span style="color:#10b981">Everything is priced</span>') +
+                (why.length ? '<button class="nft-scan-view-btn" style="margin-left:auto;padding:3px 10px;font-size:0.66rem" onclick="clearNftTableFilters()">Clear filters</button>' : '') +
+                (collFilter ? '<button class="nft-table-danger"' + (why.length ? '' : ' style="margin-left:auto"') + ' onclick="deleteFilteredCollection()">Delete this whole collection</button>' : '');
         }
+    }
+
+    function clearNftTableFilters() {
+        const sel = document.getElementById('nftTableFilter');
+        const cb = document.getElementById('nftTableUnpricedOnly');
+        if (sel) sel.value = '';
+        if (cb) cb.checked = false;
+        renderReorderTable();
     }
 
     function updateNftTableSelectionUI() {
