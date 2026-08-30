@@ -601,7 +601,10 @@
         .nft-tag-chip { display: inline-block; font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; white-space: nowrap; line-height: 1.5; }
         .nft-tag-add { background: rgba(255,255,255,0.06); border: 1px dashed rgba(255,255,255,0.22); color: #778; border-radius: 999px; padding: 1px 7px; font-size: 0.62rem; cursor: pointer; font-family: inherit; line-height: 1.5; }
         .nft-tag-cell:hover .nft-tag-add { border-color: rgba(0,212,255,0.55); color: #00d4ff; }
-        .nft-tag-menu { position: fixed; z-index: 4000; width: 226px; max-height: 320px; overflow-y: auto; background: #14141f; border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; box-shadow: 0 12px 34px rgba(0,0,0,0.6); padding: 7px; }
+        /* Above .fs-overlay (10000), which is what the list view and the fullscreen NFT viewer
+           are, but below .modal-overlay.above-overlay (12000) so a modal opened on top of the
+           list still covers this. */
+        .nft-tag-menu { position: fixed; z-index: 11000; width: 226px; max-height: 320px; overflow-y: auto; background: #14141f; border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; box-shadow: 0 12px 34px rgba(0,0,0,0.6); padding: 7px; }
         .nft-tag-menu-head { font-size: 0.62rem; color: #666; padding: 3px 6px 5px; text-transform: uppercase; letter-spacing: 0.04em; }
         .nft-tag-row { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 7px; cursor: pointer; font-size: 0.72rem; color: #ccd; }
         .nft-tag-row:hover { background: rgba(255,255,255,0.07); }
@@ -2484,6 +2487,7 @@ SOL,100</pre></div>
         loadNftValues();
         loadNftMeta();
         loadNftTags();
+        bindNftViewerTagging();
         loadAlchemyKey();
         loadNftSpamOverrides();
         loadNftScanChains();
@@ -8278,6 +8282,8 @@ SOL,100</pre></div>
     // Any deliberate filter change is a fresh pass, so the stickiness resets.
     function onNftTableFilterChange() {
         closeNftTagMenu();   // its anchor row may be filtered out by the change
+        const tagSel = document.getElementById('nftTableTagFilter');
+        if (tagSel && tagSel.value === NFT_TAG_NEW_OPTION) handleNewNftTagOption(tagSel);
         nftTableJustPriced.clear();
         renderReorderGrid();
     }
@@ -8546,8 +8552,11 @@ SOL,100</pre></div>
         renderReorderTable();
     }
 
+    const NFT_TAG_NEW_OPTION = '__new_tag__';
+
     function nftTableTagFilter() {
-        return ((document.getElementById('nftTableTagFilter') || {}).value || '').trim();
+        const v = ((document.getElementById('nftTableTagFilter') || {}).value || '').trim();
+        return v === NFT_TAG_NEW_OPTION ? '' : v;   // the sentinel is an action, not a filter
     }
 
     // Rebuilds the tag dropdown. Chain tags come first and are always present; custom tags
@@ -8563,8 +8572,22 @@ SOL,100</pre></div>
         const opt = t => '<option value="' + escapeHtml(t.name) + '">' + escapeHtml(t.label) + ' (' + t.count + ')</option>';
         sel.innerHTML = '<option value="">All tags (' + nftGallery.length + ')</option>' +
             (chainTags.length ? '<optgroup label="Chain">' + chainTags.map(opt).join('') + '</optgroup>' : '') +
-            (customTags.length ? '<optgroup label="Your tags">' + customTags.map(opt).join('') + '</optgroup>' : '');
+            (customTags.length ? '<optgroup label="Your tags">' + customTags.map(opt).join('') + '</optgroup>' : '') +
+            '<option value="' + NFT_TAG_NEW_OPTION + '">＋ New tag…</option>';
         sel.value = tags.some(t => t.name === keep) ? keep : '';
+    }
+
+    // Picking "＋ New tag…" in the filter creates a tag rather than filtering by one. It is
+    // created empty and selected, so the list goes empty until something is tagged with it —
+    // which is the honest result, and the footer says the tag is what's narrowing the view.
+    function handleNewNftTagOption(sel) {
+        const raw = prompt('Name the new tag:');
+        const name = raw === null ? '' : createNftTag(raw);
+        if (!name) { sel.value = ''; return false; }
+        renderNftTagFilterOptions();
+        sel.value = name;
+        toast('Tag "' + name + '" created — tag NFTs with the + in the Tags column', 'success');
+        return true;
     }
 
     function renderNftTableFilterOptions() {
@@ -8783,13 +8806,24 @@ SOL,100</pre></div>
     // per-row DOM to keep in sync. It lives on <body> rather than inside the table because the
     // table scrolls and clips.
     let nftTagMenuUrl = null;
+    // What to refresh after a tag changes. The list view redraws its table; the viewer just
+    // redraws its own chips. Without this the menu would call renderReorderTable() from the
+    // fullscreen viewer, where the table isn't even on screen.
+    let nftTagMenuOnChange = null;
+    // Slideshows are paused while the menu is open and resumed on close, so the NFT you are
+    // tagging doesn't advance out from under you mid-edit.
+    let nftTagMenuResume = null;
 
     function closeNftTagMenu() {
         const el = document.getElementById('nftTagMenu');
         if (el) el.remove();
         nftTagMenuUrl = null;
+        nftTagMenuOnChange = null;
         document.removeEventListener('mousedown', onNftTagMenuOutside, true);
         document.removeEventListener('keydown', onNftTagMenuKey, true);
+        const resume = nftTagMenuResume;
+        nftTagMenuResume = null;
+        if (resume) resume();
     }
     function onNftTagMenuOutside(e) {
         const el = document.getElementById('nftTagMenu');
@@ -8799,15 +8833,45 @@ SOL,100</pre></div>
         if (e.key === 'Escape') { e.stopPropagation(); closeNftTagMenu(); }
     }
 
-    function openNftTagMenu(url, anchor) {
-        // Clicking the same row's chips again closes it, so the cell toggles.
+    // Stops whichever slideshow is running and hands back a function that restarts it.
+    // Returns null when nothing was playing, so closing the menu doesn't start one.
+    function pauseSlideshowsForTagMenu() {
+        const wasMain = !!slideshowTimer;
+        const wasOverlay = !!overlaySlideshowTimer;
+        const wasSs = !!screensaverNftTimer;
+        if (!wasMain && !wasOverlay && !wasSs) return null;
+        if (wasMain) toggleSlideshow();
+        if (wasOverlay) toggleOverlaySlideshow();
+        // The screensaver has no toggle — it just owns an interval.
+        if (wasSs) { clearInterval(screensaverNftTimer); screensaverNftTimer = null; }
+        return () => {
+            if (wasMain && !slideshowTimer) toggleSlideshow();
+            if (wasOverlay && !overlaySlideshowTimer) toggleOverlaySlideshow();
+            // Only restart if the screensaver is still up — closing the menu after exiting it
+            // must not leave an interval running against a hidden element.
+            if (wasSs && !screensaverNftTimer && screensaverActive) {
+                screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs());
+            }
+        };
+    }
+
+    function openNftTagMenu(url, anchor, opts) {
+        // Clicking the same anchor again closes it, so the cell toggles.
         if (nftTagMenuUrl === url) { closeNftTagMenu(); return; }
+        // Close first: that resumes whatever a previously open menu had paused, so pausing
+        // afterwards can't be undone by the close that follows it.
         closeNftTagMenu();
+        nftTagMenuResume = (opts && opts.pauseSlideshow) ? pauseSlideshowsForTagMenu() : null;
+        nftTagMenuOnChange = (opts && opts.onChange) || renderReorderTable;
         nftTagMenuUrl = url;
 
         const menu = document.createElement('div');
         menu.className = 'nft-tag-menu';
         menu.id = 'nftTagMenu';
+        // The screensaver is z-index 100000 and its Esc hint 100001, so the stylesheet's 11000
+        // would put the menu behind it. Only raise it that far when the screensaver is actually
+        // up, so normally it still sits below the above-overlay modals.
+        if (screensaverActive) menu.style.zIndex = '100002';
         document.body.appendChild(menu);
         renderNftTagMenu();
 
@@ -8854,7 +8918,7 @@ SOL,100</pre></div>
                     e.stopPropagation();
                     toggleNftTag(url, t.name);
                     renderNftTagMenu();
-                    renderReorderTable();
+                    if (nftTagMenuOnChange) nftTagMenuOnChange();
                 });
                 const drop = document.createElement('button');
                 drop.className = 'nft-tag-drop';
@@ -8865,7 +8929,7 @@ SOL,100</pre></div>
                     if (!confirm('Delete the "' + t.label + '" tag?\n\nIt will be removed from ' + t.count + ' NFT' + (t.count !== 1 ? 's' : '') + '. The NFTs themselves are not touched.')) return;
                     deleteNftTagEverywhere(t.name);
                     renderNftTagMenu();
-                    renderReorderTable();
+                    if (nftTagMenuOnChange) nftTagMenuOnChange();
                 });
                 row.appendChild(drop);
             }
@@ -8885,7 +8949,7 @@ SOL,100</pre></div>
             if (nftCustomTagsOf(url).indexOf(name) === -1) toggleNftTag(url, name);
             input.value = '';
             renderNftTagMenu();
-            renderReorderTable();
+            if (nftTagMenuOnChange) nftTagMenuOnChange();
             const again = document.querySelector('#nftTagMenu .nft-tag-new input');
             if (again) again.focus();
         };
@@ -8896,6 +8960,41 @@ SOL,100</pre></div>
         input.addEventListener('click', e => e.stopPropagation());
         box.querySelector('button').addEventListener('click', e => { e.stopPropagation(); commit(); });
         menu.appendChild(box);
+    }
+
+    // --- tagging while viewing ---------------------------------------------
+    // Right-click the artwork anywhere it's on show — the gallery card or the fullscreen
+    // viewer — and the same tag menu opens for whatever is currently displayed. Any running
+    // slideshow pauses first so the NFT can't advance mid-edit, and resumes on close.
+    function openNftTagMenuForViewer(idx, e) {
+        const url = nftGallery[idx];
+        if (!url) return;
+        e.preventDefault();
+        e.stopPropagation();
+        // Anchor to the click, not the image: the image is huge and a menu pinned under it
+        // would land off-screen.
+        const anchor = { getBoundingClientRect: () => ({
+            top: e.clientY, bottom: e.clientY, left: e.clientX, right: e.clientX, width: 0, height: 0,
+        }) };
+        openNftTagMenu(url, anchor, {
+            pauseSlideshow: true,
+            // Nothing on these screens shows tags, so there's nothing to redraw — but the list
+            // view may be open underneath, and it costs nothing to keep it honest.
+            onChange: renderReorderTable,
+        });
+    }
+
+    function bindNftViewerTagging() {
+        const main = document.getElementById('nftImg');
+        if (main) main.addEventListener('contextmenu', e => openNftTagMenuForViewer(nftIdx, e));
+        const fs = document.getElementById('overlayNFTImg');
+        if (fs) fs.addEventListener('contextmenu', e => openNftTagMenuForViewer(overlayNftIdx, e));
+        // The screensaver crossfades between two <img>s, so both need the handler — whichever
+        // is currently on top is the one that gets right-clicked.
+        ['ssNftImg1', 'ssNftImg2'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('contextmenu', e => openNftTagMenuForViewer(screensaverNftIdx, e));
+        });
     }
 
     function updateNftTableSelectionUI() {
