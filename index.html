@@ -559,6 +559,10 @@
         .nft-scan-check:disabled { cursor: not-allowed; }
         .nft-scan-badge { position: absolute; top: 7px; right: 7px; font-size: 0.55rem; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,0.8); color: #f59e0b; border: 1px solid rgba(245,158,11,0.35); z-index: 3; }
         .nft-scan-badge.spam { color: #ef4444; border-color: rgba(239,68,68,0.35); }
+        /* Faint until hovered: present on every good card without shouting. */
+        .nft-scan-badge.mark-spam { color: #5a5a6e; border-color: rgba(255,255,255,0.12); cursor: pointer; opacity: 0.55; }
+        .nft-scan-card:hover .nft-scan-badge.mark-spam { opacity: 1; }
+        .nft-scan-badge.mark-spam:hover { background: #ef4444; color: #fff; border-color: #ef4444; opacity: 1; }
         .nft-scan-empty { grid-column: 1 / -1; padding: 30px 10px; text-align: center; color: #666; font-size: 0.8rem; }
         /* ===== NFT TABLE (line-by-line) VIEW ===== */
         .nft-table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; }
@@ -586,6 +590,12 @@
         .nft-table-apply { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.16); color: #99a; border-radius: 6px; padding: 2px 8px; font-size: 0.66rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
         .nft-table-apply:hover { border-color: rgba(0,212,255,0.5); color: #00d4ff; }
         .nft-table-foot { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 8px 2px 0; font-size: 0.72rem; color: #889; }
+        .nft-table-del { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 6px; padding: 2px 7px; font-size: 0.7rem; cursor: pointer; font-family: inherit; line-height: 1.2; }
+        .nft-table-del:hover { background: #ef4444; color: #fff; }
+        .nft-table-danger { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); color: #ef4444; border-radius: 999px; padding: 4px 11px; font-size: 0.66rem; cursor: pointer; font-family: inherit; }
+        .nft-table-danger:hover:not(:disabled) { background: #ef4444; color: #fff; }
+        .nft-table-danger:disabled { opacity: 0.35; cursor: not-allowed; }
+        .nft-table tbody tr.picked td { background: rgba(0,212,255,0.12); }
 
         .nft-scan-view-btn {
             padding: 4px 11px; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 0.7rem;
@@ -1929,10 +1939,13 @@ SOL,100</pre></div>
                     <input type="checkbox" id="nftTableUnpricedOnly" onchange="renderReorderGrid()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
                     <span>Only unpriced</span>
                 </label>
-                <input type="search" id="nftTableFilter" oninput="renderReorderGrid()" placeholder="Filter by collection…" autocomplete="off"
-                       style="flex:1;min-width:160px;max-width:280px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit">
-                <span style="font-size:0.66rem;color:#666">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection</span>
+                <select id="nftTableFilter" onchange="renderReorderGrid()"
+                        style="flex:1;min-width:180px;max-width:320px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
+                <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)">Select all shown</button>
+                <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(false)">Clear</button>
+                <button class="nft-table-danger" id="nftTableDeleteBtn" onclick="deleteSelectedTableRows()">Delete selected</button>
             </div>
+            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection</div>
             <div class="reorder-grid" id="reorderGrid"></div>
             <div class="nft-table-wrap" id="reorderTableWrap" style="display:none"><table class="nft-table" id="reorderTable"></table></div>
             <div class="nft-table-foot" id="reorderTableFoot" style="display:none"></div>
@@ -7656,6 +7669,7 @@ SOL,100</pre></div>
         show('reorderTableWrap', table);
         show('reorderTableFoot', table, 'flex');
         show('reorderTableTools', table, 'flex');
+        show('nftTableHint', table);
         const btn = document.getElementById('reorderViewToggle');
         if (btn) btn.textContent = table ? '▦ Tile view' : '☰ List view';
         const hint = document.getElementById('reorderHint');
@@ -7679,6 +7693,72 @@ SOL,100</pre></div>
         return n;
     }
 
+    // Rows ticked in the list view, held as gallery URLs so deletions can't shift them.
+    let nftTablePicked = new Set();
+
+    // Removes NFTs from the gallery and cleans up everything keyed off their URL. The viewer
+    // stays on whatever it was showing when that survives the cut.
+    function deleteNftUrls(urls) {
+        const doomed = new Set(urls);
+        if (doomed.size === 0) return 0;
+        const wasShowing = nftGallery[nftIdx];
+        let n = 0;
+        nftGallery = nftGallery.filter(u => {
+            if (!doomed.has(u)) return true;
+            delete nftValues[u];
+            delete nftMeta[u];
+            nftTablePicked.delete(u);
+            n++;
+            return false;
+        });
+        const at = nftGallery.indexOf(wasShowing);
+        nftIdx = at !== -1 ? at : Math.min(nftIdx, Math.max(0, nftGallery.length - 1));
+        if (n > 0) {
+            saveNFTs(); saveNftValues(); saveNftMeta();
+            recalcNftTotal();
+            updateNFTDisplay();
+        }
+        return n;
+    }
+
+    function deleteOneNft(idx) {
+        const url = nftGallery[idx];
+        if (!url) return;
+        const name = nftCollectionOf(url);
+        if (!confirm('Remove this NFT?\n\n' + name + (nftMeta[url] && nftMeta[url].tokenId != null ? ' #' + nftMeta[url].tokenId : ''))) return;
+        deleteNftUrls([url]);
+        renderReorderTable();
+        toast('Removed 1 NFT', 'success');
+    }
+
+    function selectAllTableRows(on) {
+        const rows = nftTableRows();
+        rows.forEach(r => { if (on) nftTablePicked.add(r.url); else nftTablePicked.delete(r.url); });
+        if (!on) nftTablePicked.clear();
+        renderReorderTable();
+    }
+
+    function deleteSelectedTableRows() {
+        const urls = [...nftTablePicked].filter(u => nftGallery.indexOf(u) !== -1);
+        if (urls.length === 0) { toast('Nothing selected', 'warning'); return; }
+        const colls = new Set(urls.map(nftCollectionOf));
+        const where = colls.size === 1 ? ' from ' + [...colls][0] : ' across ' + colls.size + ' collections';
+        if (!confirm('Remove ' + urls.length + ' NFT' + (urls.length !== 1 ? 's' : '') + where + '?\n\nThis cannot be undone.')) return;
+        const n = deleteNftUrls(urls);
+        renderReorderTable();
+        toast('Removed ' + n + ' NFT' + (n !== 1 ? 's' : ''), 'success');
+    }
+
+    // Every collection currently in the gallery, with counts, for the filter dropdown.
+    function galleryCollections() {
+        const counts = new Map();
+        nftGallery.forEach(u => {
+            const c = nftCollectionOf(u);
+            counts.set(c, (counts.get(c) || 0) + 1);
+        });
+        return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    }
+
     function nftTableRows() {
         const onlyUnpriced = (document.getElementById('nftTableUnpricedOnly') || {}).checked;
         const q = ((document.getElementById('nftTableFilter') || {}).value || '').trim().toLowerCase();
@@ -7690,7 +7770,7 @@ SOL,100</pre></div>
             value: nftValues[url] || 0,
         }));
         if (onlyUnpriced) rows = rows.filter(r => !(r.value > 0));
-        if (q) rows = rows.filter(r => r.collection.toLowerCase().indexOf(q) !== -1);
+        if (q) rows = rows.filter(r => r.collection.toLowerCase() === q); // dropdown = exact
 
         const { col, dir } = nftTableSort;
         rows.sort((a, b) => {
@@ -7711,9 +7791,35 @@ SOL,100</pre></div>
         renderReorderTable();
     }
 
+    function renderNftTableFilterOptions() {
+        const sel = document.getElementById('nftTableFilter');
+        if (!sel) return;
+        const keep = sel.value;
+        const colls = galleryCollections();
+        sel.innerHTML = '<option value="">All collections (' + nftGallery.length + ')</option>' +
+            colls.map(([c, n]) => '<option value="' + escapeHtml(c.toLowerCase()) + '">' + escapeHtml(c) + ' (' + n + ')</option>').join('');
+        // Keep the current filter if that collection still exists after a delete.
+        sel.value = colls.some(([c]) => c.toLowerCase() === keep) ? keep : '';
+    }
+
+    function deleteFilteredCollection() {
+        const sel = document.getElementById('nftTableFilter');
+        const q = sel ? sel.value : '';
+        if (!q) return;
+        const urls = nftGallery.filter(u => nftCollectionOf(u).toLowerCase() === q);
+        if (urls.length === 0) return;
+        const name = nftCollectionOf(urls[0]);
+        if (!confirm('Remove the entire "' + name + '" collection?\n\n' + urls.length + ' NFT' + (urls.length !== 1 ? 's' : '') + ' will be deleted. This cannot be undone.')) return;
+        const n = deleteNftUrls(urls);
+        if (sel) sel.value = '';
+        renderReorderTable();
+        toast('Removed ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' from ' + name, 'success');
+    }
+
     function renderReorderTable() {
         const table = document.getElementById('reorderTable');
         if (!table) return;
+        renderNftTableFilterOptions();
         const rows = nftTableRows();
         const arrow = c => nftTableSort.col === c ? (nftTableSort.dir === 1 ? ' ▲' : ' ▼') : '';
         const th = (c, label, extra) => '<th class="' + (nftTableSort.col === c ? 'sorted' : '') + '"' +
@@ -7721,20 +7827,35 @@ SOL,100</pre></div>
 
         table.innerHTML =
             '<thead><tr>' +
-              th('idx', '#', ' style="width:52px"') +
+              '<th class="nosort" style="width:30px"></th>' +
+              th('idx', '#', ' style="width:48px"') +
               '<th class="nosort" style="width:44px"></th>' +
               th('collection', 'Collection') +
               th('token', 'Token') +
               th('chain', 'Chain') +
               th('value', 'Value', ' style="text-align:right"') +
-              '<th class="nosort" style="width:60px"></th>' +
+              '<th class="nosort" style="width:56px"></th>' +
+              '<th class="nosort" style="width:34px"></th>' +
             '</tr></thead><tbody></tbody>';
 
         const tbody = table.querySelector('tbody');
         rows.forEach(r => {
             const tr = document.createElement('tr');
-            if (!(r.value > 0)) tr.className = 'unpriced';
+            const picked = nftTablePicked.has(r.url);
+            tr.className = (picked ? 'picked' : '') + (!(r.value > 0) ? ' unpriced' : '');
             tr.dataset.idx = r.idx;
+
+            const cPick = document.createElement('td');
+            const pick = document.createElement('input');
+            pick.type = 'checkbox';
+            pick.checked = picked;
+            pick.style.cssText = 'width:14px;height:14px;cursor:pointer;accent-color:#00d4ff';
+            pick.addEventListener('change', () => {
+                if (pick.checked) nftTablePicked.add(r.url); else nftTablePicked.delete(r.url);
+                tr.classList.toggle('picked', pick.checked);
+                updateNftTableSelectionUI();
+            });
+            cPick.appendChild(pick);
 
             const cNum = document.createElement('td');
             cNum.textContent = r.idx + 1;
@@ -7781,19 +7902,40 @@ SOL,100</pre></div>
                 cAct.appendChild(b);
             }
 
-            [cNum, cImg, cColl, cTok, cChain, cVal, cAct].forEach(td => tr.appendChild(td));
+            const cDel = document.createElement('td');
+            const del = document.createElement('button');
+            del.className = 'nft-table-del';
+            del.textContent = '✕';
+            del.title = 'Remove this NFT from the gallery';
+            del.addEventListener('click', e => { e.stopPropagation(); deleteOneNft(r.idx); });
+            cDel.appendChild(del);
+
+            [cPick, cNum, cImg, cColl, cTok, cChain, cVal, cAct, cDel].forEach(td => tr.appendChild(td));
             tbody.appendChild(tr);
         });
+        updateNftTableSelectionUI();
 
         const foot = document.getElementById('reorderTableFoot');
         if (foot) {
             const shownVal = rows.reduce((s, r) => s + r.value, 0);
             const unpriced = nftGallery.filter(u => !(nftValues[u] > 0)).length;
+            const sel = document.getElementById('nftTableFilter');
+            const filtered = sel && sel.value;
             foot.innerHTML =
                 '<span>Showing <strong style="color:#ccd">' + rows.length + '</strong> of ' + nftGallery.length + '</span>' +
                 '<span>Listed value <strong style="color:#10b981">' + curSym() + Math.round(toCur(shownVal)).toLocaleString() + '</strong></span>' +
                 '<span>Gallery total <strong style="color:#ccd">' + curSym() + Math.round(toCur(sumNftValues())).toLocaleString() + '</strong></span>' +
-                (unpriced > 0 ? '<span style="color:#f59e0b">' + unpriced + ' still unpriced</span>' : '<span style="color:#10b981">Everything is priced</span>');
+                (unpriced > 0 ? '<span style="color:#f59e0b">' + unpriced + ' still unpriced</span>' : '<span style="color:#10b981">Everything is priced</span>') +
+                (filtered ? '<button class="nft-table-danger" style="margin-left:auto" onclick="deleteFilteredCollection()">Delete this whole collection</button>' : '');
+        }
+    }
+
+    function updateNftTableSelectionUI() {
+        const live = [...nftTablePicked].filter(u => nftGallery.indexOf(u) !== -1).length;
+        const btn = document.getElementById('nftTableDeleteBtn');
+        if (btn) {
+            btn.disabled = live === 0;
+            btn.textContent = live > 0 ? 'Delete selected (' + live + ')' : 'Delete selected';
         }
     }
 
@@ -8011,6 +8153,20 @@ SOL,100</pre></div>
         try { localStorage.setItem(lsKey('nftSpamOverrides'), JSON.stringify(nftSpamOverrides)); } catch (e) {}
     }
     function collectionKey(chain, contract) { return (chain || 'ethereum') + ':' + String(contract || '').toLowerCase(); }
+
+    // Verdicts are two-way: 'clean' (you vouched for it) or 'spam' (you condemned it).
+    // Older saves stored a bare `true` for clean, so that still reads correctly.
+    function collectionVerdict(chain, contract) {
+        const v = nftSpamOverrides[collectionKey(chain, contract)];
+        if (v === true || v === 'clean') return 'clean';
+        if (v === 'spam') return 'spam';
+        return null;
+    }
+    function setCollectionVerdict(chain, contract, verdict) {
+        const ck = collectionKey(chain, contract);
+        if (verdict) nftSpamOverrides[ck] = verdict; else delete nftSpamOverrides[ck];
+        saveNftSpamOverrides();
+    }
 
     function openAddNFTModal() {
         resetNftScanPanel();
@@ -8840,9 +8996,13 @@ SOL,100</pre></div>
             const count = perCollection.get(ck) || 1;
             r.collectionCount = count;
 
-            // A collection the user vouched for is never spam again, whatever the signals say.
-            if (nftSpamOverrides[ck]) { r.spam = false; r.spamReason = ''; r.spamCleared = true; return; }
-            r.spamCleared = false;
+            // Your own verdict always wins, and is re-applied on every scan so the same
+            // false positive never has to be corrected twice.
+            const verdict = collectionVerdict(r.chain, r.contract);
+            r.spamCleared = verdict === 'clean';
+            r.spamMarked = verdict === 'spam';
+            if (verdict === 'clean') { r.spam = false; r.spamReason = ''; return; }
+            if (verdict === 'spam') { r.spam = true; r.spamReason = 'you marked this collection as spam'; return; }
 
             const noImage = !r.image;
             const noFloor = !(r.floorUsd > 0);
@@ -8980,20 +9140,28 @@ SOL,100</pre></div>
 
     // Clicking a "Spam?" badge vouches for the whole contract, not just the one token —
     // airdrops arrive in bulk, so per-token clearing would be busywork.
-    function clearCollectionSpam(idx) {
+    function clearCollectionSpam(idx) { setScanCollectionVerdict(idx, 'clean'); }
+    function markCollectionSpam(idx) { setScanCollectionVerdict(idx, 'spam'); }
+
+    // Both directions are collection-wide: airdrops arrive in bulk, so judging one token at
+    // a time would be busywork. The verdict is stored and re-applied on every future scan.
+    function setScanCollectionVerdict(idx, verdict) {
         const r = nftScanState.results[idx];
         if (!r) return;
         const ck = collectionKey(r.chain, r.contract);
-        nftSpamOverrides[ck] = true;
-        saveNftSpamOverrides();
+        setCollectionVerdict(r.chain, r.contract, verdict);
         classifyNftScanSpam(nftScanState.results);
-        // Newly cleared items become selectable, matching what a fresh scan would have done.
         nftScanState.results.forEach(x => {
-            if (collectionKey(x.chain, x.contract) === ck && !x.alreadyAdded) x.selected = true;
+            if (collectionKey(x.chain, x.contract) !== ck) return;
+            // Cleared items become selectable again; condemned ones must not stay selected.
+            x.selected = verdict === 'clean' ? !x.alreadyAdded : false;
         });
         const n = nftScanState.results.filter(x => collectionKey(x.chain, x.contract) === ck).length;
+        const name = r.collection || 'collection';
         renderNftScanResults();
-        toast('Marked "' + (r.collection || 'collection') + '" as not spam · ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' cleared', 'success');
+        toast(verdict === 'clean'
+            ? 'Marked "' + name + '" as not spam · ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' cleared'
+            : 'Marked "' + name + '" as spam · ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' hidden · remembered for future scans', 'success');
     }
 
     const NFT_SCAN_VIEWS = ['new', 'hide', 'all', 'spam'];
@@ -9052,15 +9220,29 @@ SOL,100</pre></div>
             cb.addEventListener('click', e => { e.stopPropagation(); toggleNftScanPick(i, cb.checked); });
             card.appendChild(cb);
 
-            if (r.alreadyAdded || r.spam) {
+            if (r.alreadyAdded) {
                 const badge = document.createElement('div');
-                badge.className = 'nft-scan-badge' + (r.alreadyAdded ? '' : ' spam');
-                badge.textContent = r.alreadyAdded ? 'Already added' : 'Spam?';
-                if (!r.alreadyAdded) {
-                    badge.title = (r.spamReason ? r.spamReason + '\n\n' : '') +
-                        'Click to mark this whole collection as not spam';
-                    badge.addEventListener('click', e => { e.stopPropagation(); clearCollectionSpam(i); });
-                }
+                badge.className = 'nft-scan-badge';
+                badge.textContent = 'Already added';
+                card.appendChild(badge);
+            } else if (r.spam) {
+                const badge = document.createElement('div');
+                badge.className = 'nft-scan-badge spam';
+                badge.textContent = 'Spam?';
+                badge.title = (r.spamReason ? r.spamReason + '\n\n' : '') +
+                    'Click to mark this whole collection as NOT spam';
+                badge.addEventListener('click', e => { e.stopPropagation(); clearCollectionSpam(i); });
+                card.appendChild(badge);
+            } else {
+                // Nothing flagged this, but the filter misses things. One click condemns the
+                // collection, and the verdict sticks across future scans.
+                const badge = document.createElement('div');
+                badge.className = 'nft-scan-badge mark-spam';
+                badge.textContent = r.spamCleared ? '✓ not spam' : 'spam?';
+                badge.title = r.spamCleared
+                    ? 'You cleared this collection. Click to mark it as spam instead.'
+                    : 'Looks fine — click if it is actually spam. Applies to the whole collection and is remembered.';
+                badge.addEventListener('click', e => { e.stopPropagation(); markCollectionSpam(i); });
                 card.appendChild(badge);
             }
 
