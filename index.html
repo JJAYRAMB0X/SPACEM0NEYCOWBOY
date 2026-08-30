@@ -2435,7 +2435,12 @@ SOL,100</pre></div>
     function getNftValue(idx) { return nftValues[nftGallery[idx]] || 0; }
     function setNftValue(idx, val) { nftValues[nftGallery[idx]] = val; saveNftValues(); recalcNftTotal(); }
     function sumNftValues() { return nftGallery.reduce((sum, url) => sum + (nftValues[url] || 0), 0); }
-    function recalcNftTotal() { nftEstValue = sumNftValues(); saveNftValue(); updateNftValueDisplay(); updateTotalValue(); updateStats(); }
+    // Every NFT value write funnels through here, so this is where "the number on screen is
+    // stale until you navigate away and back" gets fixed once rather than at each call site.
+    // updateNftValueDisplay only redraws the TOTAL; refreshNftValueDisplays also redraws the
+    // per-NFT value on the card, the fullscreen viewer, the screensaver overlay and the list —
+    // and skips the list while a value is mid-edit, so it is safe to call from anywhere.
+    function recalcNftTotal() { nftEstValue = sumNftValues(); saveNftValue(); refreshNftValueDisplays(); updateTotalValue(); updateStats(); }
 
     // ============================================================
     // TOAST & STATUS
@@ -10302,11 +10307,7 @@ SOL,100</pre></div>
         }
         const idx = nftGallery.indexOf(url);
         if (idx === -1) return { ok: false, reason: 'gone from the gallery' };
-        const n = applyValueToCollection(idx, usd);
-        // Every surface that shows an NFT value at once — the card, the fullscreen viewer, the
-        // screensaver overlay and the list. It also refuses to redraw the list while a value is
-        // part-way through being typed, which a bare renderReorderTable() would trample.
-        refreshNftValueDisplays();
+        const n = applyValueToCollection(idx, usd);   // recalcNftTotal redraws every display
         if (!quiet) {
             toast('Floor updated: ' + collection + ' → ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
                   ' across ' + n + ' NFT' + (n !== 1 ? 's' : ''), 'success');
