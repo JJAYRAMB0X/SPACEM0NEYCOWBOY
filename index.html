@@ -7772,7 +7772,8 @@ SOL,100</pre></div>
         if (!m || !m.contract || m.tokenId == null) return '';
         const chain = NFT_SCAN_CHAINS[m.chain || 'ethereum'];
         if (!chain || !chain.openseaSlug) return '';   // no OpenSea presence we can link to
-        return 'https://opensea.io/assets/' + chain.openseaSlug + '/' + m.contract + '/' + m.tokenId;
+        // OpenSea's current item route; /assets/ still works but 308-redirects.
+        return 'https://opensea.io/item/' + chain.openseaSlug + '/' + m.contract + '/' + m.tokenId;
     }
 
     function openNftArtModal(idx) {
@@ -8195,7 +8196,7 @@ SOL,100</pre></div>
             key: 'polygon', kind: 'evm', label: 'Polygon',
             walletChainType: 'evm',
             alchemyNetwork: 'polygon-mainnet',
-            openseaSlug: 'matic',
+            openseaSlug: 'polygon',
             hasFloors: false,
         },
         zora: {
@@ -8209,6 +8210,7 @@ SOL,100</pre></div>
             key: 'robinhood', kind: 'evm', label: 'Robinhood',
             walletChainType: 'evm',
             alchemyNetwork: 'robinhood-mainnet',
+            openseaSlug: 'robinhood',
             hasFloors: false,
         },
         // Alchemy serves Ink over core RPC but not the NFT API — it answers
@@ -8218,6 +8220,7 @@ SOL,100</pre></div>
             key: 'ink', kind: 'evm', label: 'Ink',
             walletChainType: 'evm',
             alchemyNetwork: 'ink-mainnet',
+            openseaSlug: 'ink',
             hasFloors: false,
             nftApi: false,
             unavailableReason: "Alchemy's NFT API doesn't cover Ink yet (RPC only)",
