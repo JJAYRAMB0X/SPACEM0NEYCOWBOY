@@ -1202,7 +1202,7 @@
                             <div class="nft-value-overlay" id="nftValueOverlay" onclick="startEditIndividualNftValue(nftIdx, 'nftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
                         </div>
                         <div class="nft-controls">
-                            <button class="nft-btn" onclick="openNFTReorder()" title="Reorder">⊞</button>
+                            <button class="nft-btn" onclick="openNFTReorder()" title="Manage NFTs — prices, sorting, artwork, export">☰</button>
                             <button class="nft-btn" onclick="prevNFT()">◀</button>
                             <button class="nft-btn" id="slideshowBtn" onclick="toggleSlideshow()">▶️ Play</button>
                             <button class="nft-btn" onclick="nextNFT()">▶</button>
@@ -1955,7 +1955,7 @@ SOL,100</pre></div>
         <div class="fs-content" style="max-width:1100px; max-height:95vh;">
             <div class="fs-header">
                 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-                    <div class="fs-title">⊞ Reorder NFTs</div>
+                    <div class="fs-title">☰ Manage NFTs</div>
                     <!-- Kept on the left, well away from the destructive Close button. -->
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="exportNftCollage()" title="Save the whole gallery as one JPG">📸 Save collage</button>
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" id="reorderViewToggle" onclick="toggleReorderView()" title="Switch between tiles and an editable list">☰ List view</button>
@@ -7524,7 +7524,11 @@ SOL,100</pre></div>
 
     // NFT reorder
     function openNFTReorder() {
-        if (!nftGallery.length) { alert('No NFTs to reorder!'); return; }
+        if (!nftGallery.length) { alert('No NFTs here yet!'); return; }
+        // Always open on the list. Tiles fetch every thumbnail at once, which is a visible
+        // wait on a large gallery, and the list is what the work actually happens in.
+        nftReorderView = 'table';
+        nftTableJustPriced.clear();
         renderReorderGrid();
         document.getElementById('nftReorderOverlay').classList.add('active');
     }
@@ -7683,7 +7687,7 @@ SOL,100</pre></div>
     }
 
     // --- reorder module: view switching ------------------------------------
-    let nftReorderView = 'grid';           // 'grid' = draggable tiles, 'table' = editable list
+    let nftReorderView = 'table';          // 'table' = editable list (default), 'grid' = draggable tiles
     let nftTableSort = { col: 'idx', dir: 1 };
 
     function toggleReorderView() {
