@@ -7993,7 +7993,6 @@ SOL,100</pre></div>
             else if (col === 'collection') c = a.collection.localeCompare(b.collection) || a.value - b.value;
             else if (col === 'token') c = a.tokenId.localeCompare(b.tokenId, undefined, { numeric: true });
             else if (col === 'chain') c = a.chain.localeCompare(b.chain);
-            else if (col === 'wallet') c = a.wallet.localeCompare(b.wallet) || a.collection.localeCompare(b.collection);
             else c = a.idx - b.idx;
             return c * dir || a.idx - b.idx;
         });
@@ -8058,7 +8057,9 @@ SOL,100</pre></div>
               th('collection', 'Collection') +
               th('token', 'Token') +
               th('chain', 'Chain') +
-              th('wallet', 'Wallet') +
+              // Deliberately not sortable: which wallet holds a token says nothing about how
+              // the gallery should be arranged, and sorting by it would split collections.
+              '<th class="nosort">Wallet</th>' +
               th('value', 'Value', ' style="text-align:right"') +
               '<th class="nosort" style="width:56px"></th>' +
               '<th class="nosort" style="width:46px"></th>' +
@@ -9664,6 +9665,19 @@ SOL,100</pre></div>
     }
 
     // --- adding ------------------------------------------------------------
+    // Places a new NFT immediately after the last one already in its collection, so adding
+    // to a collection you already own keeps that collection contiguous. Falls back to the
+    // end when the collection is new. The metadata for `url` is written by the caller after
+    // this returns, so the collection name is passed in rather than looked up.
+    function insertNftIntoGallery(url, collection) {
+        let after = -1;
+        for (let i = 0; i < nftGallery.length; i++) {
+            if (nftCollectionOf(nftGallery[i]) === collection) after = i;
+        }
+        if (after === -1) nftGallery.push(url);
+        else nftGallery.splice(after + 1, 0, url);
+    }
+
     function addSelectedScannedNfts() {
         const picks = nftScanState.results.filter(r => r.selected && nftScanPickable(r));
         if (picks.length === 0) { toast('Nothing selected', 'warning'); return; }
@@ -9673,14 +9687,17 @@ SOL,100</pre></div>
         // rate-limited in that one burst got written off for good. The full candidate list is
         // stored instead and re-walked on every display, so throttling costs one render.
         const existing = galleryNftKeys();
-        let added = 0, valued = 0, skipped = 0;
+        let added = 0, valued = 0, skipped = 0, lastAddedUrl = '';
         picks.forEach(r => {
             if (existing.has(r.key)) { skipped++; return; }             // already tracked on-chain
             // The stored URL is only an identity key; display walks the candidate list. Never
             // key off the placeholder when real candidates exist, or the entry can never heal.
             const url = (r.imageCandidates && r.imageCandidates[0]) || r.image || r.placeholder;
             if (nftGallery.includes(url)) { skipped++; return; }         // never touch an entry that's already there
-            nftGallery.push(url);
+            // Land next to the rest of its collection rather than at the very end. Appending
+            // split collections in two — visible in the gallery order and in the collage.
+            insertNftIntoGallery(url, r.collection);
+            lastAddedUrl = url;
             nftMeta[url] = {
                 chain: r.chain, contract: r.contract, tokenId: r.tokenId, standard: r.standard,
                 collection: r.collection,
@@ -9697,7 +9714,10 @@ SOL,100</pre></div>
         });
 
         if (added > 0) {
-            nftIdx = nftGallery.length - 1;
+            // The newest NFT is no longer necessarily last, since it slots in beside its
+            // collection — so find it rather than assuming the end of the list.
+            const at = nftGallery.indexOf(lastAddedUrl);
+            nftIdx = at !== -1 ? at : nftGallery.length - 1;
             saveNFTs(); saveNftMeta(); saveNftValues();
             recalcNftTotal();   // auto-total picks the new values up unless the user is on manual
             updateNFTDisplay();
