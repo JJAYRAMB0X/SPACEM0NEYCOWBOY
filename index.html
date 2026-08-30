@@ -2807,6 +2807,12 @@ SOL,100</pre></div>
     }
 
     function refreshAll() {
+        // renderNetwork() tears the constellation down and rebuilds it, which restarts the
+        // orbit animation and snaps every planet back to its start. That is fine in the app,
+        // but during the screensaver it would visibly reset the scene on every price tick —
+        // which is why auto-updates used to be suspended there outright. Update the numbers
+        // in place instead, so prices keep moving and the animation is left alone.
+        if (screensaverActive) return refreshValuesInPlace();
         updateTotalValue();
         updateStats();
         updateCatTotals();
@@ -2815,6 +2821,32 @@ SOL,100</pre></div>
         renderNetwork();
         renderGlobalStats();
         refreshNftValueDisplays();
+    }
+
+    function refreshValuesInPlace() {
+        updateTotalValue();
+        updateStats();
+        updateCatTotals();
+        updatePortfolioCount();
+        updateNodeValuesInPlace();
+        refreshNftValueDisplays();
+    }
+
+    // Rewrites the value and 24h change on nodes already on screen, matching how
+    // renderNetwork formats them, without touching layout or the animation.
+    function updateNodeValuesInPlace() {
+        document.querySelectorAll('.network-node').forEach(node => {
+            const t = portfolio.find(x => x.id === node.dataset.tokenId);
+            if (!t) return;
+            const val = node.querySelector('.node-value');
+            if (val) val.textContent = curSym() + Math.round(toCur(t.value)).toLocaleString();
+            const ch = node.querySelector('.node-change');
+            if (ch && t.priceChange24h != null) {
+                const v = parseFloat(t.priceChange24h);
+                ch.style.color = v >= 0 ? '#10b981' : '#ef4444';
+                ch.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+            }
+        });
     }
 
     // Every place an NFT value is shown. These are all rendered once and then left alone,
@@ -9962,7 +9994,8 @@ SOL,100</pre></div>
 
     function enterScreensaver() {
         if (screensaverActive) return;
-        suspendAutoUpdatesForScreensaver();
+        // Auto-updates keep running here: refreshAll() switches to an in-place value update
+        // while the screensaver is up, so nothing rebuilds the constellation.
         screensaverActive = true;
         document.body.style.overflow = 'hidden';
         applySsNftState();
