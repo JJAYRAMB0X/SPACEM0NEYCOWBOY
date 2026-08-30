@@ -7231,7 +7231,7 @@ SOL,100</pre></div>
         const empty = document.getElementById('nftEmpty');
         if (nftGallery.length === 0) { viewer.style.display = 'none'; empty.style.display = 'block'; return; }
         viewer.style.display = 'block'; empty.style.display = 'none';
-        document.getElementById('nftImg').src = nftGallery[nftIdx];
+        bindGalleryNftImage(document.getElementById('nftImg'), nftIdx);
         document.getElementById('nftCounter').textContent = (nftIdx + 1) + ' / ' + nftGallery.length;
         updateIndividualNftValueOverlay(nftIdx, 'nftValueOverlay');
         updateNftValueDisplay();
@@ -7385,7 +7385,16 @@ SOL,100</pre></div>
 
     // NFT overlay controls
     function expandNFT() { if (!nftGallery.length) { alert('No NFTs yet!'); return; } overlayNftIdx = nftIdx; updateOverlayNFT(); document.getElementById('nftOverlay').classList.add('active'); }
-    function updateOverlayNFT() { document.getElementById('overlayNFTImg').src = nftGallery[overlayNftIdx]; document.getElementById('overlayNFTCounter').textContent = (overlayNftIdx+1) + ' / ' + nftGallery.length; updateIndividualNftValueOverlay(overlayNftIdx, 'overlayNftValueOverlay'); }
+    function updateOverlayNFT() { bindGalleryNftImage(document.getElementById('overlayNFTImg'), overlayNftIdx); document.getElementById('overlayNFTCounter').textContent = (overlayNftIdx+1) + ' / ' + nftGallery.length; updateIndividualNftValueOverlay(overlayNftIdx, 'overlayNftValueOverlay'); }
+
+    // Scanned NFTs carry a candidate list; manually added ones are just their own URL.
+    function bindGalleryNftImage(img, idx) {
+        const url = nftGallery[idx];
+        if (!img || !url) return;
+        const meta = nftMeta[url] || {};
+        const list = (meta.imageCandidates && meta.imageCandidates.length) ? meta.imageCandidates : [url];
+        bindNftImage(img, list, meta.placeholder || '');
+    }
     function nextNFTOverlay() { overlayNftIdx = (overlayNftIdx + 1) % nftGallery.length; updateOverlayNFT(); }
     function prevNFTOverlay() { overlayNftIdx = (overlayNftIdx - 1 + nftGallery.length) % nftGallery.length; updateOverlayNFT(); }
     function toggleOverlaySlideshow() {
@@ -7747,11 +7756,16 @@ SOL,100</pre></div>
             // Spam is never selected out of the gate, even when the user unhides it.
             nftScanState.results.forEach(r => { r.selected = !r.alreadyAdded && !r.spam; });
 
+            nftScanState.healed = healGalleryNftImages(nftScanState.results);
+
             nftScanState.running = false;
             nftScanView = 'hide'; // every scan opens on the clean view
             closeModal('nftScanProgressModal');
             renderNftScanResults();
             showModal('nftScanResultsModal');
+            if (nftScanState.healed > 0) {
+                toast('Repaired artwork for ' + nftScanState.healed + ' NFT' + (nftScanState.healed !== 1 ? 's' : '') + ' already in your gallery', 'success');
+            }
         } catch (e) {
             console.error('[NFT-Scan] FAILED:', e);
             nftScanState.running = false;
@@ -7810,14 +7824,22 @@ SOL,100</pre></div>
             if (u && typeof u === 'string' && list.indexOf(u) === -1) list.push(u);
         };
         img = img || {};
-        push(img.cachedUrl);
-        push(img.pngUrl);        // full-size conversion; preferred over the 250px thumbnail
-        push(img.thumbnailUrl);
-        if (img.originalUrl) httpCandidates(img.originalUrl).forEach(push);
-        if (rawImage) {
-            if (rawImage.startsWith('data:') || rawImage.trim().startsWith('<svg')) push(resolveImageUrl(rawImage));
-            else httpCandidates(rawImage).forEach(push);
-        }
+
+        const alchemyUrls = () => { push(img.cachedUrl); push(img.pngUrl); push(img.thumbnailUrl); };
+        const sourceUrls = () => {
+            if (img.originalUrl) httpCandidates(img.originalUrl).forEach(push);
+            if (rawImage) {
+                if (rawImage.startsWith('data:') || rawImage.trim().startsWith('<svg')) push(resolveImageUrl(rawImage));
+                else httpCandidates(rawImage).forEach(push);
+            }
+        };
+
+        // A cachedUrl with no contentType and no size is Alchemy advertising a cache entry it
+        // never actually filled — the CyberBrokers signature. Healthy media always reports
+        // both. Demote the CDN in that case so we don't spend three doomed requests per tile.
+        const cacheLooksEmpty = !!img.cachedUrl && !img.contentType && !img.size;
+        if (cacheLooksEmpty) { sourceUrls(); alchemyUrls(); }
+        else { alchemyUrls(); sourceUrls(); }
         return list;
     }
 
@@ -8132,6 +8154,26 @@ SOL,100</pre></div>
         return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
     }
 
+    // Walks a candidate list until one decodes, then stops. Used everywhere an NFT image is
+    // shown so that a gateway throttling this page view doesn't leave a permanently broken
+    // tile — the next render starts the walk again from the top and usually succeeds.
+    // Handlers are assigned (not addEventListener) because these elements are re-bound often.
+    function bindNftImage(img, candidates, placeholder, onResolved) {
+        if (!img) return;
+        const list = (candidates || []).filter(Boolean);
+        let i = 0;
+        img.onerror = () => {
+            if (i < list.length) { img.src = list[i++]; return; }
+            img.onerror = null;                       // stop; nothing left to try
+            if (placeholder) img.src = placeholder;
+        };
+        img.onload = () => {
+            if (onResolved && placeholder && img.src !== placeholder) onResolved(img.src);
+        };
+        if (list.length) img.src = list[i++];
+        else if (placeholder) img.src = placeholder;
+    }
+
     function shortTokenId(id) {
         const s = String(id);
         return s.length > 12 ? s.slice(0, 6) + '…' + s.slice(-4) : s;
@@ -8198,6 +8240,44 @@ SOL,100</pre></div>
             r.spam = reasons.length > 0;
             r.spamReason = reasons.join(' · ');
         });
+    }
+
+    // Repairs gallery entries that were saved before candidate lists existed, or that got
+    // stored as a placeholder because a gateway happened to be throttling at that moment.
+    // Matching is by contract + tokenId, so manually added NFTs are never touched.
+    function healGalleryNftImages(results) {
+        const byKey = new Map();
+        results.forEach(r => byKey.set(r.key, r));
+        let healed = 0;
+
+        nftGallery.slice().forEach((url, i) => {
+            const m = nftMeta[url];
+            if (!m || !m.contract || m.tokenId == null) return;
+            const r = byKey.get(nftKey(m.chain || 'ethereum', m.contract, m.tokenId));
+            if (!r || !(r.imageCandidates || []).length) return;
+
+            const isPlaceholder = typeof url === 'string' && url.startsWith('data:image/svg+xml');
+            const hasCandidates = !!(m.imageCandidates && m.imageCandidates.length);
+            if (hasCandidates && !isPlaceholder) return; // nothing to fix
+
+            m.imageCandidates = r.imageCandidates.slice(0, 8);
+            m.placeholder = r.placeholder;
+
+            if (isPlaceholder) {
+                const newUrl = r.imageCandidates[0];
+                // Re-key onto real artwork, carrying the value across so nothing is lost.
+                if (newUrl && nftGallery.indexOf(newUrl) === -1) {
+                    nftGallery[i] = newUrl;
+                    nftMeta[newUrl] = m;
+                    delete nftMeta[url];
+                    if (nftValues[url] != null) { nftValues[newUrl] = nftValues[url]; delete nftValues[url]; }
+                }
+            }
+            healed++;
+        });
+
+        if (healed > 0) { saveNFTs(); saveNftMeta(); saveNftValues(); updateNFTDisplay(); }
+        return healed;
     }
 
     // Clicking a "Spam?" badge vouches for the whole contract, not just the one token —
@@ -8287,26 +8367,9 @@ SOL,100</pre></div>
             img.className = 'nft-scan-thumb';
             img.loading = 'lazy';
             img.alt = r.collection;
-            // Walk the candidates until one decodes; the winner is written back to r.image so
-            // "Add Selected" stores a URL that's been proven to render.
-            let ci = 0;
-            const tryNext = () => {
-                const list = r.imageCandidates || [];
-                if (ci < list.length) { img.src = list[ci++]; return; }
-                r.imageOk = false;
-                r.image = '';
-                img.src = r.placeholder;
-            };
-            img.addEventListener('error', () => {
-                if (img.src === r.placeholder) return; // placeholder itself failed; stop
-                tryNext();
-            });
-            img.addEventListener('load', () => {
-                if (img.src === r.placeholder) return;
-                r.image = img.src;
-                r.imageOk = true;
-            });
-            tryNext();
+            // Note the winner but never record a failure: a gateway throttling this render
+            // says nothing about whether the artwork exists.
+            bindNftImage(img, r.imageCandidates, r.placeholder, url => { r.image = url; r.imageOk = true; });
             card.appendChild(img);
 
             const info = document.createElement('div');
@@ -8440,25 +8503,6 @@ SOL,100</pre></div>
     // does a candidate we've already watched fail to decode.
     function nftScanHasImage(r) { return r.imageOk === true || (r.imageOk === undefined && !!r.image); }
 
-    // Resolves when the URL either decodes as an image or provably doesn't.
-    function imageLoads(url, timeoutMs) {
-        return new Promise(resolve => {
-            const im = new Image();
-            let settled = false;
-            const finish = ok => { if (!settled) { settled = true; clearTimeout(timer); resolve(ok); } };
-            const timer = setTimeout(() => finish(false), timeoutMs || 8000);
-            im.onload = () => finish(true);
-            im.onerror = () => finish(false);
-            im.src = url;
-        });
-    }
-
-    async function firstLoadableImage(list) {
-        for (const u of (list || [])) {
-            if (await imageLoads(u)) return u;
-        }
-        return '';
-    }
     function nftScanHasFloor(r) { return r.floorUsd > 0; }
 
     // mode: 'all' | 'none' | 'image' | 'floor'. The last two let the user grab everything
@@ -8498,41 +8542,29 @@ SOL,100</pre></div>
     }
 
     // --- adding ------------------------------------------------------------
-    async function addSelectedScannedNfts() {
+    function addSelectedScannedNfts() {
         const picks = nftScanState.results.filter(r => r.selected && nftScanPickable(r));
         if (picks.length === 0) { toast('Nothing selected', 'warning'); return; }
 
-        // The gallery stores one URL per NFT forever, so prove the artwork before committing.
-        // Cards the user scrolled past already proved themselves while rendering; the rest
-        // are checked here, or we'd persist a URL that never renders.
-        const unverified = picks.filter(r => r.imageOk === undefined && (r.imageCandidates || []).length > 0);
-        if (unverified.length > 0) {
-            nftScanState.cancelled = false;
-            showModal('nftScanProgressModal');
-            nftScanProgress('Checking artwork', '0/' + unverified.length + ' — confirming images load');
-            let done = 0;
-            for (let i = 0; i < unverified.length; i += 6) {
-                if (nftScanState.cancelled) break;
-                const batch = unverified.slice(i, i + 6);
-                await Promise.all(batch.map(async r => {
-                    const winner = await firstLoadableImage(r.imageCandidates);
-                    r.image = winner;             // '' falls back to the labelled placeholder
-                    r.imageOk = !!winner;
-                    done++;
-                }));
-                nftScanProgress(null, done + '/' + unverified.length + ' — confirming images load');
-            }
-            closeModal('nftScanProgressModal');
-        }
-
+        // Deliberately no pre-flight image check here. Validating on add turned a *transient*
+        // gateway throttle into a *permanent* placeholder: whichever candidates happened to be
+        // rate-limited in that one burst got written off for good. The full candidate list is
+        // stored instead and re-walked on every display, so throttling costs one render.
         const existing = galleryNftKeys();
         let added = 0, valued = 0, skipped = 0;
         picks.forEach(r => {
             if (existing.has(r.key)) { skipped++; return; }             // already tracked on-chain
-            const url = r.image || r.placeholder;
+            // The stored URL is only an identity key; display walks the candidate list. Never
+            // key off the placeholder when real candidates exist, or the entry can never heal.
+            const url = (r.imageCandidates && r.imageCandidates[0]) || r.image || r.placeholder;
             if (nftGallery.includes(url)) { skipped++; return; }         // never touch an entry that's already there
             nftGallery.push(url);
-            nftMeta[url] = { chain: r.chain, contract: r.contract, tokenId: r.tokenId, standard: r.standard, collection: r.collection };
+            nftMeta[url] = {
+                chain: r.chain, contract: r.contract, tokenId: r.tokenId, standard: r.standard,
+                collection: r.collection,
+                imageCandidates: (r.imageCandidates || []).slice(0, 8),
+                placeholder: r.placeholder,
+            };
             existing.add(r.key);
             // Floor price is only ever a default: it fills an empty slot and never overwrites a typed value.
             if (r.floorUsd > 0 && !(nftValues[url] > 0)) { nftValues[url] = r.floorUsd; valued++; }
