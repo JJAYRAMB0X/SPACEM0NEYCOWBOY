@@ -2063,6 +2063,7 @@ SOL,100</pre></div>
                 <button class="nft-scan-view-btn" id="nftRefreshFloorsBtn" style="padding:4px 10px;font-size:0.66rem" onclick="refreshFloorsForShownRows()" title="Recheck the floor price of every collection currently listed — one lookup per collection, applied to all its NFTs">↻ Recheck floors</button>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)">Select all shown</button>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(false)">Clear</button>
+                <button class="nft-scan-view-btn" id="nftTableTagBtn" style="padding:4px 10px;font-size:0.66rem" onclick="openBulkTagMenu(this)" title="Apply or remove a tag across every ticked row at once">🏷 Tag selected</button>
                 <button class="nft-table-danger" id="nftTableDeleteBtn" onclick="deleteSelectedTableRows()">Delete selected</button>
             </div>
             <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · Right-click a row to recheck its floor, auto-recheck it, or tag it · Column headers sort this list only; “Gallery order” above rewrites the saved order used by the slideshow and collage</div>
@@ -9155,6 +9156,7 @@ SOL,100</pre></div>
     // per-row DOM to keep in sync. It lives on <body> rather than inside the table because the
     // table scrolls and clips.
     let nftTagMenuUrl = null;
+    let nftTagMenuUrls = [];   // what the tag rows act on — one NFT, or every selected row
     // What to refresh after a tag changes. The list view redraws its table; the viewer just
     // redraws its own chips. Without this the menu would call renderReorderTable() from the
     // fullscreen viewer, where the table isn't even on screen.
@@ -9167,6 +9169,7 @@ SOL,100</pre></div>
         const el = document.getElementById('nftTagMenu');
         if (el) el.remove();
         nftTagMenuUrl = null;
+        nftTagMenuUrls = [];
         nftTagMenuOnChange = null;
         document.removeEventListener('mousedown', onNftTagMenuOutside, true);
         document.removeEventListener('keydown', onNftTagMenuKey, true);
@@ -9205,14 +9208,17 @@ SOL,100</pre></div>
     }
 
     function openNftTagMenu(url, anchor, opts) {
-        // Clicking the same anchor again closes it, so the cell toggles.
-        if (nftTagMenuUrl === url) { closeNftTagMenu(); return; }
+        // Clicking the same anchor again closes it, so the cell toggles. Bulk always reopens:
+        // the selection may have changed since.
+        if (nftTagMenuUrl === url && !(opts && opts.urls)) { closeNftTagMenu(); return; }
         // Close first: that resumes whatever a previously open menu had paused, so pausing
         // afterwards can't be undone by the close that follows it.
         closeNftTagMenu();
         nftTagMenuResume = (opts && opts.pauseSlideshow) ? pauseSlideshowsForTagMenu() : null;
         nftTagMenuOnChange = (opts && opts.onChange) || renderReorderTable;
         nftTagMenuUrl = url;
+        // The set the tag rows act on. One NFT normally; every ticked row in bulk mode.
+        nftTagMenuUrls = (opts && opts.urls && opts.urls.length) ? opts.urls.slice() : [url];
 
         const menu = document.createElement('div');
         menu.className = 'nft-tag-menu';
@@ -9243,15 +9249,18 @@ SOL,100</pre></div>
         const menu = document.getElementById('nftTagMenu');
         const url = nftTagMenuUrl;
         if (!menu || !url) return;
-        const mine = nftTagsOf(url);
+        const targets = nftTagMenuUrls.length ? nftTagMenuUrls : [url];
+        const bulk = targets.length > 1;
         menu.innerHTML = '';
 
         const head = document.createElement('div');
         head.className = 'nft-tag-menu-head';
-        head.textContent = nftCollectionOf(url);
+        head.textContent = bulk ? targets.length + ' NFTs selected' : nftCollectionOf(url);
         menu.appendChild(head);
 
-        renderNftFloorSection(menu, url);
+        // A floor is per collection and the selection can span several, so the floor controls
+        // only make sense for a single NFT.
+        if (!bulk) renderNftFloorSection(menu, url);
 
         const tagHead = document.createElement('div');
         tagHead.className = 'nft-tag-menu-head';
@@ -9261,20 +9270,28 @@ SOL,100</pre></div>
         menu.appendChild(tagHead);
 
         allNftTags().forEach(t => {
-            const on = mine.indexOf(t.name) !== -1;
+            // Across a selection a tag can be on all, some or none — "some" gets its own mark,
+            // because a bare tick would claim the whole selection already carries it.
+            const hits = targets.filter(u => nftTagsOf(u).indexOf(t.name) !== -1).length;
+            const all = hits === targets.length, some = hits > 0 && !all;
             const row = document.createElement('div');
             // A chain tag is shown so you can see it, but it isn't a choice — it comes from
             // the NFT's own metadata.
             row.className = 'nft-tag-row' + (t.custom ? '' : ' auto');
             row.innerHTML =
-                '<span class="nft-tag-check">' + (on ? '✓' : '') + '</span>' +
+                '<span class="nft-tag-check">' + (all ? '✓' : some ? '–' : '') + '</span>' +
                 '<span class="nft-tag-dot" style="background:' + t.color + '"></span>' +
                 '<span>' + escapeHtml(t.label) + '</span>' +
-                (t.custom ? '' : '<span class="nft-tag-note">auto</span>');
+                (t.custom
+                    ? (bulk && hits ? '<span class="nft-tag-note">' + hits + '/' + targets.length + '</span>' : '')
+                    : '<span class="nft-tag-note">auto</span>');
             if (t.custom) {
                 row.addEventListener('click', e => {
                     e.stopPropagation();
-                    toggleNftTag(url, t.name);
+                    // Partly applied means "finish the job" — clicking once tags the rest
+                    // rather than clearing the few that already had it.
+                    if (all) targets.forEach(u => toggleNftTag(u, t.name));
+                    else targets.forEach(u => { if (nftCustomTagsOf(u).indexOf(t.name) === -1) toggleNftTag(u, t.name); });
                     renderNftTagMenu();
                     if (nftTagMenuOnChange) nftTagMenuOnChange();
                 });
@@ -9301,9 +9318,9 @@ SOL,100</pre></div>
         const commit = () => {
             const name = createNftTag(input.value);
             if (!name) { input.focus(); return; }
-            // Creating a tag from an NFT's own menu applies it to that NFT — that's the whole
-            // reason you were in this menu.
-            if (nftCustomTagsOf(url).indexOf(name) === -1) toggleNftTag(url, name);
+            // Creating a tag from this menu applies it to whatever the menu is acting on —
+            // that's the whole reason you were in it. In bulk that means every selected NFT.
+            targets.forEach(u => { if (nftCustomTagsOf(u).indexOf(name) === -1) toggleNftTag(u, name); });
             input.value = '';
             renderNftTagMenu();
             if (nftTagMenuOnChange) nftTagMenuOnChange();
@@ -9444,13 +9461,32 @@ SOL,100</pre></div>
         });
     }
 
+    // Ticked rows that still exist, in gallery order.
+    function selectedNftUrls() {
+        return nftGallery.filter(u => nftTablePicked.has(u));
+    }
+
     function updateNftTableSelectionUI() {
-        const live = [...nftTablePicked].filter(u => nftGallery.indexOf(u) !== -1).length;
+        const live = selectedNftUrls().length;
         const btn = document.getElementById('nftTableDeleteBtn');
         if (btn) {
             btn.disabled = live === 0;
             btn.textContent = live > 0 ? 'Delete selected (' + live + ')' : 'Delete selected';
         }
+        const tagBtn = document.getElementById('nftTableTagBtn');
+        if (tagBtn) {
+            tagBtn.disabled = live === 0;
+            tagBtn.style.opacity = live === 0 ? '0.4' : '';
+            tagBtn.textContent = live > 0 ? '🏷 Tag selected (' + live + ')' : '🏷 Tag selected';
+        }
+    }
+
+    // Opens the tag menu over the whole selection. Same menu as a single NFT's, so there is
+    // one set of tag controls to learn rather than a separate bulk dialog.
+    function openBulkTagMenu(anchor) {
+        const urls = selectedNftUrls();
+        if (!urls.length) { toast('Tick some rows first', 'warning'); return; }
+        openNftTagMenu(urls[0], anchor, { urls });
     }
 
     // Enter commits and drops to the next row, so a column of values can be typed straight down.
