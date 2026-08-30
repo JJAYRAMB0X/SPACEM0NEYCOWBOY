@@ -2064,8 +2064,10 @@ SOL,100</pre></div>
                 <select id="nftTableFilter" onchange="onNftTableFilterChange()"
                         style="flex:1;min-width:180px;max-width:320px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
                 <button class="nft-scan-view-btn" id="nftRefreshFloorsBtn" style="padding:4px 10px;font-size:0.66rem" onclick="refreshFloorsForShownRows()" title="Recheck the floor price of every collection currently listed — one lookup per collection, applied to all its NFTs">↻ Recheck floors</button>
-                <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)">Select all shown</button>
-                <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(false)">Clear</button>
+                <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)" title="Tick every row the current filters leave visible">Select all shown</button>
+                <!-- Named for what it clears. "Clear" alone sat next to the footer's "Clear
+                     filters" and read as the same thing. -->
+                <button class="nft-scan-view-btn" id="nftTableDeselectBtn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(false)" title="Untick every row, including any hidden by the current filters">Deselect all</button>
                 <button class="nft-scan-view-btn" id="nftTableTagBtn" style="padding:4px 10px;font-size:0.66rem" onclick="openBulkTagMenu(this)" title="Apply or remove a tag across every ticked row at once">🏷 Tag selected</button>
                 <button class="nft-table-danger" id="nftTableDeleteBtn" onclick="deleteSelectedTableRows()">Delete selected</button>
             </div>
@@ -8808,10 +8810,12 @@ SOL,100</pre></div>
         toast('Back to the original artwork', 'info');
     }
 
+    // on=true ticks what the filters currently show; on=false unticks everything, including
+    // rows a filter is hiding — otherwise a selection could survive out of sight and get
+    // deleted or tagged later without ever having been visible.
     function selectAllTableRows(on) {
-        const rows = nftTableRows();
-        rows.forEach(r => { if (on) nftTablePicked.add(r.url); else nftTablePicked.delete(r.url); });
-        if (!on) nftTablePicked.clear();
+        if (on) nftTableRows().forEach(r => nftTablePicked.add(r.url));
+        else nftTablePicked.clear();
         renderReorderTable();
     }
 
@@ -9556,6 +9560,14 @@ SOL,100</pre></div>
             tagBtn.disabled = live === 0;
             tagBtn.style.opacity = live === 0 ? '0.4' : '';
             tagBtn.textContent = live > 0 ? '🏷 Tag selected (' + live + ')' : '🏷 Tag selected';
+        }
+        // Dimmed with nothing ticked, so the selection controls show at a glance whether
+        // there is a selection at all.
+        const offBtn = document.getElementById('nftTableDeselectBtn');
+        if (offBtn) {
+            offBtn.disabled = live === 0;
+            offBtn.style.opacity = live === 0 ? '0.4' : '';
+            offBtn.textContent = live > 0 ? 'Deselect all (' + live + ')' : 'Deselect all';
         }
     }
 
