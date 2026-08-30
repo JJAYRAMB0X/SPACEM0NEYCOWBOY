@@ -1998,8 +1998,12 @@ SOL,100</pre></div>
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" id="reorderViewToggle" onclick="toggleReorderView()" title="Switch between tiles and an editable list">☰ List view</button>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('value')" title="Collections led by your single best piece — each collection still stays together">💎 Most valuable</button>
-                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('collection')" title="Collections ranked by what the whole holding is worth">🗂️ By collection</button>
+                    <!-- Labelled as "gallery order" because that is what these two rewrite: the
+                         saved order used by the tiles, slideshow, screensaver and collage. The
+                         list view's own column sorting is a separate, view-only thing. -->
+                    <span style="font-size:0.68rem;color:#778;letter-spacing:0.02em">Gallery order:</span>
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('value')" title="Rewrites the saved gallery order — used by the tiles, slideshow, screensaver and collage. Collections are ranked by the single best piece you own in each, and each collection is kept together. To rank individual NFTs by price instead, click the Value column in list view.">💎 Best piece first</button>
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('collection')" title="Rewrites the saved gallery order — used by the tiles, slideshow, screensaver and collage. Collections are ranked by what the whole holding is worth, and each is kept together.">🗂️ Biggest collection first</button>
                     <button class="btn btn-danger" style="padding:6px 12px;font-size:0.75rem" onclick="closeOverlay('nftReorderOverlay')">✕ Close</button>
                 </div>
             </div>
@@ -2018,7 +2022,7 @@ SOL,100</pre></div>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(false)">Clear</button>
                 <button class="nft-table-danger" id="nftTableDeleteBtn" onclick="deleteSelectedTableRows()">Delete selected</button>
             </div>
-            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection</div>
+            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · Column headers sort this list only; “Gallery order” above rewrites the saved order used by the slideshow and collage</div>
             <div class="reorder-grid" id="reorderGrid"></div>
             <div class="nft-table-wrap" id="reorderTableWrap" style="display:none"><table class="nft-table" id="reorderTable"></table></div>
             <div class="nft-table-foot" id="reorderTableFoot" style="display:none"></div>
@@ -8112,9 +8116,16 @@ SOL,100</pre></div>
         updateNFTDisplay();
         renderReorderGrid();
         const groups = new Set(nftGallery.map(nftCollectionOf)).size;
+        // Say it at the moment it would otherwise look broken: the gallery just got reordered,
+        // but a list pinned to its own column won't show any of it.
+        if (nftReorderView === 'table' && nftTableSort.col !== 'idx') {
+            toast('Gallery reordered · the list is still sorted by ' + nftTableSortLabel() +
+                  ', so click "Show gallery order" to see it', 'info');
+            return;
+        }
         toast(mode === 'value'
-            ? 'Sorted by value · ' + groups + ' collections, each kept together'
-            : 'Grouped into ' + groups + ' collections by total value', 'success');
+            ? 'Gallery order: best piece first · ' + groups + ' collections, each kept together'
+            : 'Gallery order: biggest collection first · ' + groups + ' collections, each kept together', 'success');
     }
 
     // --- collage export ----------------------------------------------------
@@ -8552,6 +8563,18 @@ SOL,100</pre></div>
         renderReorderTable();
     }
 
+    // 'idx' IS gallery order, so this is "stop overriding it" rather than another sort.
+    function resetNftTableSort() {
+        nftTableSort = { col: 'idx', dir: 1 };
+        renderReorderTable();
+    }
+
+    function nftTableSortLabel() {
+        const c = nftTableSort.col;
+        return c === 'value' ? 'Value' : c === 'collection' ? 'Collection'
+             : c === 'token' ? 'Token' : c === 'chain' ? 'Chain' : '#';
+    }
+
     const NFT_TAG_NEW_OPTION = '__new_tag__';
 
     function nftTableTagFilter() {
@@ -8642,7 +8665,7 @@ SOL,100</pre></div>
         table.innerHTML =
             '<thead><tr>' +
               '<th class="nosort" style="width:30px"></th>' +
-              th('idx', '#', ' style="width:48px"') +
+              th('idx', '#', ' style="width:48px" title="Gallery order — the order the slideshow and collage use. Click to return to it."') +
               '<th class="nosort" style="width:44px"></th>' +
               th('collection', 'Collection') +
               th('token', 'Token') +
@@ -8796,6 +8819,13 @@ SOL,100</pre></div>
                     ? '<span style="color:#f59e0b">' + unpriced + ' unpriced in the gallery</span>'
                     : '<span style="color:#10b981">Everything is priced</span>') +
                 (kept > 0 ? '<span style="color:#10b981">' + kept + ' just priced, still shown</span>' : '') +
+                // Without this, the "Gallery order" buttons look broken: they rewrite the saved
+                // order while the list keeps showing its own column sort, and nothing says so.
+                (nftTableSort.col !== 'idx'
+                    ? '<span style="color:#f59e0b">Listed by ' + nftTableSortLabel() +
+                      ' — a view only, gallery order is unchanged</span>' +
+                      '<button class="nft-scan-view-btn" style="padding:3px 10px;font-size:0.66rem" onclick="resetNftTableSort()">Show gallery order</button>'
+                    : '') +
                 (why.length ? '<button class="nft-scan-view-btn" style="margin-left:auto;padding:3px 10px;font-size:0.66rem" onclick="clearNftTableFilters()">Clear filters</button>' : '') +
                 (collFilter ? '<button class="nft-table-danger"' + (why.length ? '' : ' style="margin-left:auto"') + ' onclick="deleteFilteredCollection()">Delete this whole collection</button>' : '');
         }
