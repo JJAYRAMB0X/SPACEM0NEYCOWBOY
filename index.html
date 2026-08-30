@@ -8296,6 +8296,15 @@ SOL,100</pre></div>
         },
         // Both L2s below are Alchemy-only: no Etherscan history endpoint and no marketplace
         // floor feed, so they scan current holdings and every value is typed in by hand.
+        // Base is the only L2 here with a working floor feed: openSeaMetadata carries a
+        // price and getFloorPrice answers properly, unlike Polygon/Zora/Robinhood.
+        base: {
+            key: 'base', kind: 'evm', label: 'Base',
+            walletChainType: 'evm',
+            alchemyNetwork: 'base-mainnet',
+            openseaSlug: 'base',
+            hasFloors: true,
+        },
         polygon: {
             key: 'polygon', kind: 'evm', label: 'Polygon',
             walletChainType: 'evm',
@@ -8333,7 +8342,7 @@ SOL,100</pre></div>
 
     // Which chains a scan covers. Ethereum only by default — every extra chain is another
     // full pass over every wallet, so the user opts in.
-    let nftScanChains = { ethereum: true, polygon: false, zora: false, robinhood: false, ink: false };
+    let nftScanChains = { ethereum: true, base: false, polygon: false, zora: false, robinhood: false, ink: false };
     function loadNftScanChains() {
         try {
             const d = JSON.parse(localStorage.getItem(lsKey('nftScanChains')));
