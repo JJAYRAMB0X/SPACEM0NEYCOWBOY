@@ -582,6 +582,7 @@
         .nft-table tbody tr.unpriced:hover td { background: rgba(245,158,11,0.1); }
         .nft-table-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 5px; background: rgba(0,0,0,0.4); display: block; }
         .nft-table-coll { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .nft-table-wallet { display:inline-block; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; color:#8a9; }
         .nft-table-id { color: #778; font-family: monospace; font-size: 0.7rem; }
         .nft-table-val { text-align: right; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
         .nft-table-val:hover { color: #00d4ff; text-decoration: underline dotted; }
@@ -7533,6 +7534,17 @@ SOL,100</pre></div>
         document.getElementById('nftReorderOverlay').classList.add('active');
     }
 
+    // Wallet labels are resolved live from the saved list so a rename follows through;
+    // the label captured at scan time is the fallback for a wallet since removed.
+    function nftWalletsOf(url) {
+        const m = nftMeta[url];
+        if (!m || !(m.walletIds || []).length) return [];
+        return m.walletIds.map((id, i) => {
+            const w = wallets.find(x => x.id === id);
+            return w ? w.label : ((m.walletLabels || [])[i] || '(removed wallet)');
+        });
+    }
+
     function nftCollectionOf(url) {
         const m = nftMeta[url];
         return (m && m.collection) || 'Added manually';
@@ -7965,6 +7977,7 @@ SOL,100</pre></div>
             collection: nftCollectionOf(url),
             tokenId: (nftMeta[url] && nftMeta[url].tokenId) != null ? String(nftMeta[url].tokenId) : '',
             chain: (nftMeta[url] && nftMeta[url].chain) || '',
+            wallet: nftWalletsOf(url).join(', '),
             value: nftValues[url] || 0,
         }));
         // A row priced during this pass stays put rather than vanishing mid-edit — otherwise
@@ -7980,6 +7993,7 @@ SOL,100</pre></div>
             else if (col === 'collection') c = a.collection.localeCompare(b.collection) || a.value - b.value;
             else if (col === 'token') c = a.tokenId.localeCompare(b.tokenId, undefined, { numeric: true });
             else if (col === 'chain') c = a.chain.localeCompare(b.chain);
+            else if (col === 'wallet') c = a.wallet.localeCompare(b.wallet) || a.collection.localeCompare(b.collection);
             else c = a.idx - b.idx;
             return c * dir || a.idx - b.idx;
         });
@@ -8044,6 +8058,7 @@ SOL,100</pre></div>
               th('collection', 'Collection') +
               th('token', 'Token') +
               th('chain', 'Chain') +
+              th('wallet', 'Wallet') +
               th('value', 'Value', ' style="text-align:right"') +
               '<th class="nosort" style="width:56px"></th>' +
               '<th class="nosort" style="width:46px"></th>' +
@@ -8092,6 +8107,11 @@ SOL,100</pre></div>
                 ? '<span style="color:#778">' + escapeHtml((NFT_SCAN_CHAINS[r.chain] && NFT_SCAN_CHAINS[r.chain].label) || r.chain) + '</span>'
                 : '<span style="color:#556">manual</span>';
 
+            const cWallet = document.createElement('td');
+            cWallet.innerHTML = r.wallet
+                ? '<span class="nft-table-wallet" title="' + escapeHtml(r.wallet) + '">' + escapeHtml(r.wallet) + '</span>'
+                : '<span style="color:#556">—</span>';
+
             const cVal = document.createElement('td');
             cVal.className = 'nft-table-val' + (r.value > 0 ? '' : ' none');
             cVal.textContent = r.value > 0 ? curSym() + Math.round(toCur(r.value)).toLocaleString() : 'not priced';
@@ -8132,7 +8152,7 @@ SOL,100</pre></div>
             del.addEventListener('click', e => { e.stopPropagation(); deleteOneNft(r.idx); });
             cDel.appendChild(del);
 
-            [cPick, cNum, cImg, cColl, cTok, cChain, cVal, cAct, cArt, cDel].forEach(td => tr.appendChild(td));
+            [cPick, cNum, cImg, cColl, cTok, cChain, cWallet, cVal, cAct, cArt, cDel].forEach(td => tr.appendChild(td));
             tbody.appendChild(tr);
         });
         updateNftTableSelectionUI();
@@ -8744,6 +8764,7 @@ SOL,100</pre></div>
                     placeholder: nftPlaceholderUrl(rec),
                     floorUsd: typeof floor === 'number' && floor > 0 ? floor : 0,
                     floorManual: false,
+                    walletIds: rec.walletIds || [], walletLabels: rec.walletLabels || [],
                     alchemySpam: !!rec.alchemySpam,
                     spamClassifications: rec.spamClassifications || [],
                     alreadyAdded: already,
@@ -8899,7 +8920,16 @@ SOL,100</pre></div>
                 const tokenId = n.tokenId != null ? String(n.tokenId) : '';
                 if (!contract || !tokenId) return;
                 const key = nftKey(chain.key, contract, tokenId);
-                if (ledger.has(key)) return; // same token seen from another wallet
+                const seen = ledger.get(key);
+                if (seen) {
+                    // Same token reachable from another wallet (an ERC-1155 can genuinely be
+                    // held by several) — record the extra holder rather than dropping it.
+                    if (seen.walletIds.indexOf(wallet.id) === -1) {
+                        seen.walletIds.push(wallet.id);
+                        seen.walletLabels.push(wallet.label);
+                    }
+                    return;
+                }
 
                 const c = n.contract || {};
                 const osm = c.openSeaMetadata || {};
@@ -8921,6 +8951,7 @@ SOL,100</pre></div>
                     alchemySpam: c.isSpam === true || c.isSpam === 'true' ||
                                  (Array.isArray(c.spamClassifications) && c.spamClassifications.length > 0),
                     spamClassifications: Array.isArray(c.spamClassifications) ? c.spamClassifications : [],
+                    walletIds: [wallet.id], walletLabels: [wallet.label],
                     held: true, everOwned: true, lastBlock: 0,
                 });
             });
@@ -8975,14 +9006,14 @@ SOL,100</pre></div>
 
         // ERC-721: rows arrive oldest-first, so the last transfer touching this wallet decides ownership.
         const held721 = new Map(); // key -> bool
-        applyNftRows(erc721, 'erc721', chain, me, ledger, (rec, isIn) => {
+        applyNftRows(erc721, 'erc721', chain, me, ledger, wallet, (rec, isIn) => {
             held721.set(rec.key, isIn);
         });
         held721.forEach((isIn, key) => { const rec = ledger.get(key); if (rec && isIn) rec.held = true; });
 
         // ERC-1155: quantities net out across every in/out transfer.
         const net1155 = new Map(); // key -> BigInt
-        applyNftRows(erc1155, 'erc1155', chain, me, ledger, (rec, isIn, row) => {
+        applyNftRows(erc1155, 'erc1155', chain, me, ledger, wallet, (rec, isIn, row) => {
             let qty = 1n;
             try { qty = BigInt(row.tokenValue || '1'); } catch (e) { qty = 1n; }
             net1155.set(rec.key, (net1155.get(rec.key) || 0n) + (isIn ? qty : -qty));
@@ -8992,7 +9023,7 @@ SOL,100</pre></div>
 
     // Walks transfer rows into the shared ledger. `onRow` gets the record plus whether the
     // wallet was the recipient, so each standard can apply its own ownership rule.
-    function applyNftRows(rows, standard, chain, me, ledger, onRow) {
+    function applyNftRows(rows, standard, chain, me, ledger, wallet, onRow) {
         for (const row of rows) {
             const contract = row.contractAddress || '';
             const tokenId = row.tokenID != null ? String(row.tokenID) : '';
@@ -9009,11 +9040,14 @@ SOL,100</pre></div>
                     key, chain: chain.key, contract, tokenId, standard,
                     collection: safeText(row.tokenName || row.tokenSymbol || ''),
                     tokenName: '', image: '',
+                    walletIds: [wallet.id], walletLabels: [wallet.label],
                     held: false, everOwned: false, lastBlock: 0,
                 };
                 ledger.set(key, rec);
             }
             if (!rec.collection && (row.tokenName || row.tokenSymbol)) rec.collection = safeText(row.tokenName || row.tokenSymbol);
+            // A token can show up under more than one wallet; keep every holder.
+            if (rec.walletIds.indexOf(wallet.id) === -1) { rec.walletIds.push(wallet.id); rec.walletLabels.push(wallet.label); }
             if (isIn) rec.everOwned = true;
             const blk = parseInt(row.blockNumber, 10) || 0;
             if (blk > rec.lastBlock) rec.lastBlock = blk;
@@ -9291,13 +9325,23 @@ SOL,100</pre></div>
     function healGalleryNftImages(results, force) {
         const byKey = new Map();
         results.forEach(r => byKey.set(r.key, r));
-        let healed = 0;
+        let healed = 0, walletsUpdated = 0;
 
         nftGallery.slice().forEach((url, i) => {
             const m = nftMeta[url];
             if (!m || !m.contract || m.tokenId == null) return;
             const r = byKey.get(nftKey(m.chain || 'ethereum', m.contract, m.tokenId));
-            if (!r || !(r.imageCandidates || []).length) return;
+            if (!r) return;
+
+            // Which wallet holds it is refreshed on every scan, independently of the artwork
+            // repair below — otherwise an entry that needs no repair would never learn it.
+            if (r.walletIds && r.walletIds.length &&
+                (m.walletIds || []).join('|') !== r.walletIds.join('|')) {
+                m.walletIds = r.walletIds.slice();
+                m.walletLabels = (r.walletLabels || []).slice();
+                walletsUpdated++;
+            }
+            if (!(r.imageCandidates || []).length) return;
 
             const isPlaceholder = typeof url === 'string' && url.startsWith('data:image/svg+xml');
             const hasCandidates = !!(m.imageCandidates && m.imageCandidates.length);
@@ -9322,7 +9366,7 @@ SOL,100</pre></div>
             healed++;
         });
 
-        if (healed > 0) { saveNFTs(); saveNftMeta(); saveNftValues(); updateNFTDisplay(); }
+        if (healed > 0 || walletsUpdated > 0) { saveNFTs(); saveNftMeta(); saveNftValues(); updateNFTDisplay(); }
         return healed;
     }
 
@@ -9640,6 +9684,7 @@ SOL,100</pre></div>
             nftMeta[url] = {
                 chain: r.chain, contract: r.contract, tokenId: r.tokenId, standard: r.standard,
                 collection: r.collection,
+                walletIds: r.walletIds || [], walletLabels: r.walletLabels || [],
                 imageCandidates: (r.imageCandidates || []).slice(0, 8),
                 placeholder: r.placeholder,
             };
