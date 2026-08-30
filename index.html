@@ -1557,6 +1557,8 @@
                 <div id="nftScanIntro">
                     <div style="font-size:0.78rem;color:#888;margin-bottom:10px">…or pull NFTs straight from the wallets you've saved.</div>
                     <button class="btn btn-secondary btn-full" onclick="openNftScanOptions()">🔍 Scan Wallets</button>
+                    <button class="btn btn-secondary btn-full" style="margin-top:8px" onclick="repairGalleryArtwork()">🩹 Repair Artwork</button>
+                    <div class="modal-hint" style="margin-top:6px;line-height:1.5">Re-fetches images for NFTs already in your gallery — use it if artwork stopped loading. Values, order and manually added NFTs are untouched.</div>
                 </div>
                 <div id="nftScanOptions" style="display:none">
                     <div style="font-size:0.78rem;color:#aaa;margin-bottom:10px">Scan saved wallets for on-chain NFTs</div>
@@ -1626,7 +1628,8 @@
             </div>
             <div id="nftScanViewWrap" style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
                 <span style="font-size:0.68rem;color:#777;margin-right:2px">View</span>
-                <button type="button" class="nft-scan-view-btn active" id="nftScanViewHide" onclick="setNftScanView('hide')">Hide spam</button>
+                <button type="button" class="nft-scan-view-btn active" id="nftScanViewNew" onclick="setNftScanView('new')" title="Only NFTs not already in your gallery">Only new</button>
+                <button type="button" class="nft-scan-view-btn" id="nftScanViewHide" onclick="setNftScanView('hide')">Hide spam</button>
                 <button type="button" class="nft-scan-view-btn" id="nftScanViewAll" onclick="setNftScanView('all')">Show all</button>
                 <button type="button" class="nft-scan-view-btn" id="nftScanViewSpam" onclick="setNftScanView('spam')">Only spam</button>
                 <span id="nftScanSpamHint" style="font-size:0.66rem;color:#666;margin-left:4px"></span>
@@ -7494,7 +7497,7 @@ SOL,100</pre></div>
     let alchemyApiKey = ALCHEMY_API_KEY;
 
     let nftScanMode = 'held'; // 'held' = still owned, 'all' = ever received
-    let nftScanView = 'hide'; // 'hide' = no spam, 'all' = everything, 'spam' = only spam
+    let nftScanView = 'new'; // 'new' = unadded non-spam (default), 'hide', 'all', 'spam'
     // "chain:contract" -> true, meaning the user vouched for this collection. Persisted, because
     // re-flagging a collection the user already cleared on every rescan would be maddening.
     let nftSpamOverrides = {};
@@ -7759,7 +7762,7 @@ SOL,100</pre></div>
             nftScanState.healed = healGalleryNftImages(nftScanState.results);
 
             nftScanState.running = false;
-            nftScanView = 'hide'; // every scan opens on the clean view
+            nftScanView = 'new'; // open on what still needs a decision
             closeModal('nftScanProgressModal');
             renderNftScanResults();
             showModal('nftScanResultsModal');
@@ -8245,7 +8248,9 @@ SOL,100</pre></div>
     // Repairs gallery entries that were saved before candidate lists existed, or that got
     // stored as a placeholder because a gateway happened to be throttling at that moment.
     // Matching is by contract + tokenId, so manually added NFTs are never touched.
-    function healGalleryNftImages(results) {
+    // `force` rebuilds candidates even for entries that already look healthy — used by the
+    // explicit Repair action, where the whole point is to replace stale URLs.
+    function healGalleryNftImages(results, force) {
         const byKey = new Map();
         results.forEach(r => byKey.set(r.key, r));
         let healed = 0;
@@ -8258,7 +8263,10 @@ SOL,100</pre></div>
 
             const isPlaceholder = typeof url === 'string' && url.startsWith('data:image/svg+xml');
             const hasCandidates = !!(m.imageCandidates && m.imageCandidates.length);
-            if (hasCandidates && !isPlaceholder) return; // nothing to fix
+            if (!force && hasCandidates && !isPlaceholder) return; // nothing to fix
+            // Skip no-op refreshes so the "repaired N" count stays honest.
+            if (force && !isPlaceholder && hasCandidates &&
+                m.imageCandidates.join('|') === r.imageCandidates.slice(0, 8).join('|')) return;
 
             m.imageCandidates = r.imageCandidates.slice(0, 8);
             m.placeholder = r.placeholder;
@@ -8280,6 +8288,80 @@ SOL,100</pre></div>
         return healed;
     }
 
+    // Rebuilds artwork for NFTs already in the gallery, without rescanning the wallets.
+    // Entries added before candidate lists existed hold a single dead URL and cannot heal
+    // themselves, so this re-fetches their media by contract + tokenId, 100 at a time.
+    async function repairGalleryArtwork() {
+        const chain = NFT_SCAN_CHAINS.ethereum;
+        const targets = [];
+        const seen = new Set();
+        nftGallery.forEach(url => {
+            const m = nftMeta[url];
+            if (!m || !m.contract || m.tokenId == null) return;   // manual adds have no identity
+            const k = nftKey(m.chain || 'ethereum', m.contract, m.tokenId);
+            if (seen.has(k)) return;
+            seen.add(k);
+            targets.push({ contractAddress: m.contract, tokenId: String(m.tokenId) });
+        });
+        if (targets.length === 0) {
+            toast('Nothing to repair — only scanned NFTs carry the on-chain identity this needs', 'info');
+            return;
+        }
+
+        nftScanState.cancelled = false;
+        showModal('nftScanProgressModal');
+        nftScanProgress('Repairing artwork', '0/' + targets.length + ' — re-fetching media from Alchemy');
+
+        const rebuilt = [];
+        try {
+            for (let i = 0; i < targets.length; i += 100) {
+                if (nftScanState.cancelled) break;
+                const batch = targets.slice(i, i + 100);
+                const res = await fetch(alchemyNftBase(chain) + '/getNFTMetadataBatch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tokens: batch, refreshCache: false }),
+                });
+                if (res.status === 401 || res.status === 403) throw new Error('Alchemy rejected the API key');
+                if (!res.ok) throw new Error('Alchemy returned HTTP ' + res.status);
+                const data = await res.json();
+                const nfts = data.nfts || (Array.isArray(data) ? data : []);
+                nfts.forEach(n => {
+                    const c = n.contract || {};
+                    const contract = c.address || '';
+                    const tokenId = n.tokenId != null ? String(n.tokenId) : '';
+                    if (!contract || !tokenId) return;
+                    const rawImage = (n.raw && n.raw.metadata && n.raw.metadata.image) || '';
+                    const cands = nftImageCandidates(n.image || {}, rawImage);
+                    if (cands.length === 0) return;
+                    const osm = c.openSeaMetadata || {};
+                    const collection = osm.collectionName || c.name || c.symbol || '';
+                    rebuilt.push({
+                        key: nftKey('ethereum', contract, tokenId),
+                        chain: 'ethereum', contract, tokenId,
+                        collection: collection || 'Unknown collection',
+                        imageCandidates: cands,
+                        placeholder: nftPlaceholderUrl({ collection, tokenId, contract }),
+                    });
+                });
+                nftScanProgress(null, Math.min(i + 100, targets.length) + '/' + targets.length + ' — re-fetching media from Alchemy');
+            }
+        } catch (e) {
+            console.error('[NFT-Repair] failed:', e);
+            closeModal('nftScanProgressModal');
+            toast('Repair failed: ' + ((e && e.message) || 'unknown'), 'warning');
+            return;
+        }
+
+        closeModal('nftScanProgressModal');
+        const healed = healGalleryNftImages(rebuilt, true);
+        updateNFTDisplay();
+        toast(healed > 0
+            ? 'Refreshed artwork for ' + healed + ' NFT' + (healed !== 1 ? 's' : '')
+            : 'Artwork already up to date for all ' + targets.length + ' scanned NFTs',
+            healed > 0 ? 'success' : 'info');
+    }
+
     // Clicking a "Spam?" badge vouches for the whole contract, not just the one token —
     // airdrops arrive in bulk, so per-token clearing would be busywork.
     function clearCollectionSpam(idx) {
@@ -8298,8 +8380,10 @@ SOL,100</pre></div>
         toast('Marked "' + (r.collection || 'collection') + '" as not spam · ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' cleared', 'success');
     }
 
+    const NFT_SCAN_VIEWS = ['new', 'hide', 'all', 'spam'];
+
     function setNftScanView(view) {
-        nftScanView = (view === 'all' || view === 'spam') ? view : 'hide';
+        nftScanView = NFT_SCAN_VIEWS.indexOf(view) !== -1 ? view : 'hide';
         renderNftScanResults();
     }
 
@@ -8307,6 +8391,7 @@ SOL,100</pre></div>
     function nftScanRowVisible(r) {
         if (nftScanView === 'all') return true;
         if (nftScanView === 'spam') return !!r.spam;
+        if (nftScanView === 'new') return !r.spam && !r.alreadyAdded; // nothing to re-review
         return !r.spam;
     }
 
@@ -8326,7 +8411,7 @@ SOL,100</pre></div>
         if (nftScanState.source === 'alchemy') summary += ' · via Alchemy';
         document.getElementById('nftScanResultsSummary').textContent = summary;
 
-        ['hide', 'all', 'spam'].forEach(v => {
+        NFT_SCAN_VIEWS.forEach(v => {
             const b = document.getElementById('nftScanView' + v.charAt(0).toUpperCase() + v.slice(1));
             if (b) b.classList.toggle('active', nftScanView === v);
         });
@@ -8400,6 +8485,7 @@ SOL,100</pre></div>
             empty.className = 'nft-scan-empty';
             empty.textContent = results.length === 0 ? 'No NFTs found in these wallets.'
                 : nftScanView === 'spam' ? 'Nothing is flagged as spam — switch to “Show all”.'
+                : nftScanView === 'new' ? 'Nothing new — every NFT found is already in your gallery. Switch to “Hide spam” to see them.'
                 : 'All ' + results.length + ' NFTs are flagged as spam — switch to “Show all” or “Only spam” to review them.';
             grid.appendChild(empty);
         }
