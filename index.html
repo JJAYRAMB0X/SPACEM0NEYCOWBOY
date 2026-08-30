@@ -1872,8 +1872,14 @@ SOL,100</pre></div>
         <div class="fs-content" style="max-width:1100px; max-height:95vh;">
             <div class="fs-header">
                 <div class="fs-title">⊞ Reorder NFTs</div>
-                <button class="btn btn-danger" onclick="closeOverlay('nftReorderOverlay')">✕ Close</button>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('value')" title="Highest value first">💎 Most valuable</button>
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('collection')" title="Group each collection together, most valuable collection first">🗂️ By collection</button>
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="exportNftCollage()" title="Save the whole gallery as one JPG">🖼️ Export JPG</button>
+                    <button class="btn btn-danger" style="padding:6px 12px;font-size:0.75rem" onclick="closeOverlay('nftReorderOverlay')">✕ Close</button>
+                </div>
             </div>
+            <div id="reorderHint" style="font-size:0.7rem;color:#666;margin:-4px 0 10px">Drag to rearrange, or sort automatically. Order is saved as you go.</div>
             <div class="reorder-grid" id="reorderGrid"></div>
         </div>
     </div>
@@ -7413,6 +7419,149 @@ SOL,100</pre></div>
         document.getElementById('nftReorderOverlay').classList.add('active');
     }
 
+    function nftCollectionOf(url) {
+        const m = nftMeta[url];
+        return (m && m.collection) || 'Added manually';
+    }
+
+    // Reorders the gallery in place. nftIdx follows the NFT the user was looking at rather
+    // than the slot number, so the viewer doesn't jump to an unrelated image.
+    function sortNftGallery(mode) {
+        if (nftGallery.length < 2) { toast('Not enough NFTs to sort', 'info'); return; }
+        const current = nftGallery[nftIdx];
+        const val = u => nftValues[u] || 0;
+
+        if (mode === 'value') {
+            nftGallery.sort((a, b) => val(b) - val(a) || nftCollectionOf(a).localeCompare(nftCollectionOf(b)));
+        } else {
+            // Collections ordered by what they're collectively worth, and within a collection
+            // by value — so the strongest pieces lead each group.
+            const totals = new Map();
+            nftGallery.forEach(u => {
+                const c = nftCollectionOf(u);
+                totals.set(c, (totals.get(c) || 0) + val(u));
+            });
+            nftGallery.sort((a, b) => {
+                const ca = nftCollectionOf(a), cb = nftCollectionOf(b);
+                if (ca !== cb) return (totals.get(cb) - totals.get(ca)) || ca.localeCompare(cb);
+                return val(b) - val(a);
+            });
+        }
+
+        const newIdx = nftGallery.indexOf(current);
+        if (newIdx !== -1) nftIdx = newIdx;
+        saveNFTs();
+        updateNFTDisplay();
+        renderReorderGrid();
+        toast(mode === 'value' ? 'Sorted by value, highest first'
+                               : 'Grouped into ' + new Set(nftGallery.map(nftCollectionOf)).size + ' collections', 'success');
+    }
+
+    // --- collage export ----------------------------------------------------
+    // Alchemy's own CDN sends no Access-Control-Allow-Origin, so an <img> from it taints the
+    // canvas and toBlob() throws. Every other source we use (cloudinary, the IPFS gateways)
+    // sends `*`, so the export walks a CORS-safe subset of each NFT's candidates.
+    const NFT_NO_CORS_HOSTS = ['nft-cdn.alchemy.com', 'nft2-cdn.alchemy.com'];
+
+    function corsSafeNftCandidates(url) {
+        const meta = nftMeta[url] || {};
+        const list = (meta.imageCandidates && meta.imageCandidates.length) ? meta.imageCandidates : [url];
+        return list.filter(u => u && !NFT_NO_CORS_HOSTS.some(h => u.indexOf(h) !== -1));
+    }
+
+    function loadCorsImage(url, timeoutMs) {
+        return new Promise(resolve => {
+            const im = new Image();
+            im.crossOrigin = 'anonymous';       // required or the canvas is tainted
+            let settled = false;
+            const finish = v => { if (!settled) { settled = true; clearTimeout(t); resolve(v); } };
+            const t = setTimeout(() => finish(null), timeoutMs || 15000);
+            im.onload = () => finish(im);
+            im.onerror = () => finish(null);
+            im.src = url;
+        });
+    }
+
+    async function firstCorsImage(url) {
+        for (const u of corsSafeNftCandidates(url)) {
+            const im = await loadCorsImage(u);
+            if (im) return im;
+        }
+        return null;
+    }
+
+    async function exportNftCollage() {
+        const n = nftGallery.length;
+        if (n === 0) { toast('No NFTs to export', 'warning'); return; }
+
+        // Square-ish grid, with the tile size backed off so huge galleries stay within
+        // what a canvas can actually allocate.
+        const cols = Math.ceil(Math.sqrt(n));
+        const rows = Math.ceil(n / cols);
+        const MAX_EDGE = 8000;
+        const tile = Math.max(96, Math.min(320, Math.floor(MAX_EDGE / Math.max(cols, rows))));
+        const canvas = document.createElement('canvas');
+        canvas.width = cols * tile;
+        canvas.height = rows * tile;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        nftScanState.cancelled = false;
+        showModal('nftScanProgressModal');
+        nftScanProgress('Building collage', '0/' + n + ' — loading artwork');
+
+        let drawn = 0, missing = 0;
+        for (let i = 0; i < n; i += 8) {
+            if (nftScanState.cancelled) break;
+            const batch = [];
+            for (let k = i; k < Math.min(i + 8, n); k++) batch.push(k);
+            const imgs = await Promise.all(batch.map(k => firstCorsImage(nftGallery[k])));
+            imgs.forEach((im, bi) => {
+                const idx = batch[bi];
+                const x = (idx % cols) * tile;
+                const y = Math.floor(idx / cols) * tile;
+                if (im && im.naturalWidth > 0) {
+                    // cover-fit, centre-cropped
+                    const s = Math.max(tile / im.naturalWidth, tile / im.naturalHeight);
+                    const w = im.naturalWidth * s, h = im.naturalHeight * s;
+                    ctx.save();
+                    ctx.beginPath(); ctx.rect(x, y, tile, tile); ctx.clip();
+                    ctx.drawImage(im, x + (tile - w) / 2, y + (tile - h) / 2, w, h);
+                    ctx.restore();
+                    drawn++;
+                } else {
+                    ctx.fillStyle = '#14141f';
+                    ctx.fillRect(x + 1, y + 1, tile - 2, tile - 2);
+                    ctx.fillStyle = '#3a3a4e';
+                    ctx.font = Math.max(9, Math.floor(tile / 14)) + 'px sans-serif';
+                    ctx.textAlign = 'center';
+                    const label = nftCollectionOf(nftGallery[idx]).slice(0, 18);
+                    ctx.fillText(label, x + tile / 2, y + tile / 2);
+                    missing++;
+                }
+            });
+            nftScanProgress(null, Math.min(i + 8, n) + '/' + n + ' — loading artwork');
+        }
+
+        closeModal('nftScanProgressModal');
+        if (nftScanState.cancelled) { toast('Export cancelled', 'info'); return; }
+
+        canvas.toBlob(blob => {
+            if (!blob) { toast('Could not encode the image', 'warning'); return; }
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'nft-collage-' + new Date().toISOString().slice(0, 10) + '.jpg';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+            let msg = 'Exported ' + cols + '×' + rows + ' collage · ' + drawn + ' of ' + n + ' NFTs';
+            if (missing > 0) msg += ' · ' + missing + ' could not be loaded for export';
+            toast(msg, missing > 0 ? 'info' : 'success');
+        }, 'image/jpeg', 0.92);
+    }
+
     function renderReorderGrid() {
         const grid = document.getElementById('reorderGrid');
         grid.innerHTML = '';
@@ -7422,7 +7571,9 @@ SOL,100</pre></div>
             item.draggable = true;
             item.dataset.idx = idx;
             const img = document.createElement('img');
-            img.src = url; img.alt = 'NFT ' + (idx + 1);
+            img.alt = 'NFT ' + (idx + 1);
+            img.loading = 'lazy';
+            bindGalleryNftImage(img, idx);   // same fallback chain as the main viewer
             const num = document.createElement('div');
             num.className = 'reorder-num'; num.textContent = idx + 1;
             item.appendChild(img); item.appendChild(num);
