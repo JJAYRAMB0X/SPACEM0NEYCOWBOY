@@ -7951,13 +7951,23 @@ SOL,100</pre></div>
     // --- replacing artwork by hand ----------------------------------------
     let nftArtEditIdx = -1;
 
+    // Which marketplace an NFT's chain links out to. OpenSea for every EVM chain here; Solana
+    // names its own, because OpenSea dropped Solana and a dead opensea.io/item/solana/… link
+    // would be worse than no link at all.
+    function nftMarketName(url) {
+        const chain = NFT_SCAN_CHAINS[((nftMeta[url] || {}).chain) || 'ethereum'];
+        return (chain && chain.marketName) || 'OpenSea';
+    }
+
     function openseaItemUrl(url) {
         const m = nftMeta[url];
         if (!m) return '';
         if (m.openseaUrl) return m.openseaUrl;          // pasted by hand, wins outright
         if (!m.contract || m.tokenId == null) return ''; // manually added: no identity to build from
         const chain = NFT_SCAN_CHAINS[m.chain || 'ethereum'];
-        if (!chain || !chain.openseaSlug) return '';   // no OpenSea presence we can link to
+        if (!chain) return '';
+        if (chain.marketItemUrl) return chain.marketItemUrl(m);   // chain names its own market
+        if (!chain.openseaSlug) return '';             // no OpenSea presence we can link to
         // OpenSea's current item route; /assets/ still works but 308-redirects.
         return 'https://opensea.io/item/' + chain.openseaSlug + '/' + m.contract + '/' + m.tokenId;
     }
@@ -7967,7 +7977,7 @@ SOL,100</pre></div>
         const m = nftMeta[url];
         if (!m || (!m.contract && !m.openseaUrl)) return 'no-identity';
         const chain = NFT_SCAN_CHAINS[(m || {}).chain || 'ethereum'];
-        if (!chain || !chain.openseaSlug) return 'chain';
+        if (!chain || (!chain.openseaSlug && !chain.marketItemUrl)) return 'chain';
         return '';
     }
 
@@ -8001,11 +8011,12 @@ SOL,100</pre></div>
         const links = document.getElementById('nftArtLinks');
         const os = openseaItemUrl(url);
         const gap = openseaLinkGap(url);
+        const market = escapeHtml(nftMarketName(url));
         links.innerHTML = os
-            ? '<a href="' + escapeHtml(os) + '" target="_blank" rel="noopener" style="color:#00d4ff">↗ Open on OpenSea</a>'
+            ? '<a href="' + escapeHtml(os) + '" target="_blank" rel="noopener" style="color:#00d4ff">↗ Open on ' + market + '</a>'
             : gap === 'chain'
-                ? '<span style="color:#666">This chain has no OpenSea pages — paste a link above if there is one.</span>'
-                : '<span style="color:#666">No OpenSea link yet — paste one above.</span>';
+                ? '<span style="color:#666">This chain has no marketplace pages we can build — paste a link above if there is one.</span>'
+                : '<span style="color:#666">No ' + market + ' link yet — paste one above.</span>';
 
         const clearBtn = document.getElementById('nftArtClearBtn');
         clearBtn.style.display = (meta.artOverride || meta.openseaUrl) ? '' : 'none';
@@ -8424,9 +8435,15 @@ SOL,100</pre></div>
     // ============================================================
     // NFT WALLET SCAN — discover on-chain NFTs from saved wallets
     // ============================================================
-    // Part 1 is Ethereum only. Everything chain-specific lives in NFT_SCAN_CHAINS, and the
-    // discovery/metadata/floor steps are keyed off `kind`, so Part 2 adds Base/Arbitrum as
-    // extra `kind: 'evm'` entries and Solana as a new `kind` handled in discoverNftsForChain().
+    // Everything chain-specific lives in NFT_SCAN_CHAINS, and the discovery/metadata/floor
+    // steps are keyed off `kind` — 'evm' chains go through Alchemy (or Etherscan for history),
+    // 'solana' goes through the Helius DAS API in discoverSolanaNfts().
+    //
+    // `floorSource` says who can price a collection on this chain, and the answers need
+    // genuinely different code: 'alchemy' reads openSeaMetadata/getFloorPrice in ETH,
+    // 'coingecko-solana' matches the collection name against CoinGecko's Solana index, and
+    // null means nobody does and every value on that chain is typed in by hand. hasFloors is
+    // just "not null", kept as its own field because the picker and the notes both read it.
     const NFT_SCAN_CHAINS = {
         ethereum: {
             key: 'ethereum', kind: 'evm', label: 'Ethereum',
@@ -8436,7 +8453,7 @@ SOL,100</pre></div>
             openseaSlug: 'ethereum',
             rpcUrl: () => EVM_RPC_URLS['ethereum'],
             coingeckoPlatform: 'ethereum',
-            hasFloors: true,
+            hasFloors: true, floorSource: 'alchemy',
         },
         // Both L2s below are Alchemy-only: no Etherscan history endpoint and no marketplace
         // floor feed, so they scan current holdings and every value is typed in by hand.
@@ -8447,7 +8464,7 @@ SOL,100</pre></div>
             walletChainType: 'evm',
             alchemyNetwork: 'base-mainnet',
             openseaSlug: 'base',
-            hasFloors: true,
+            hasFloors: true, floorSource: 'alchemy',
         },
         polygon: {
             key: 'polygon', kind: 'evm', label: 'Polygon',
@@ -8482,11 +8499,25 @@ SOL,100</pre></div>
             nftApi: false,
             unavailableReason: "Alchemy's NFT API doesn't cover Ink yet (RPC only)",
         },
+        // Solana shares nothing with the EVM path. Alchemy's NFT API doesn't cover it, there is
+        // no contract/tokenId pair, and OpenSea dropped Solana — so discovery is Helius DAS,
+        // identity is (collection mint, asset mint), and floors come from CoinGecko matched by
+        // collection name (see runSolanaFloorPass for why the mint can't be the join key).
+        // DAS returns artwork inline, so Solana skips the tokenURI/IPFS leg too.
+        // The item link is Magic Eden — that's a plain <a href>, so its missing CORS headers,
+        // which rule it out as a floor feed, don't matter here.
+        solana: {
+            key: 'solana', kind: 'solana', label: 'Solana',
+            walletChainType: 'solana',
+            hasFloors: true, floorSource: 'coingecko-solana',
+            marketName: 'Magic Eden',
+            marketItemUrl: m => 'https://magiceden.io/item-details/' + encodeURIComponent(m.tokenId),
+        },
     };
 
     // Which chains a scan covers. Ethereum only by default — every extra chain is another
     // full pass over every wallet, so the user opts in.
-    let nftScanChains = { ethereum: true, base: false, polygon: false, zora: false, robinhood: false, ink: false };
+    let nftScanChains = { ethereum: true, base: false, polygon: false, zora: false, robinhood: false, ink: false, solana: false };
     function loadNftScanChains() {
         try {
             const d = JSON.parse(localStorage.getItem(lsKey('nftScanChains')));
@@ -8528,6 +8559,10 @@ SOL,100</pre></div>
     // Airdrop spam arrives in bulk. A collection this large is suspicious *only* when it also has
     // no floor price — a real collection you hold 30 of still has a floor, so it's never flagged.
     const NFT_SPAM_COLLECTION_COUNT = 20;
+
+    // --- Solana (Helius DAS) -----------------------------------------------
+    const NFT_DAS_PAGE_SIZE = 1000;             // Helius caps getAssetsByOwner at 1000 per page
+    const NFT_DAS_MAX_PAGES = 5;                // 5,000 assets per wallet, matching the EVM ceiling
 
     // --- Alchemy NFT API ---------------------------------------------------
     // Shipped in the file like the other keys here. A key is an opaque account id — it exposes
@@ -8621,6 +8656,7 @@ SOL,100</pre></div>
             if (!usable) { b.style.opacity = '0.4'; b.style.textDecoration = 'line-through'; }
             b.textContent = (on ? '✓ ' : '') + chain.label;
             b.title = !usable ? chain.unavailableReason
+                : chain.floorSource === 'coingecko-solana' ? 'Floor prices from CoinGecko, matched by collection name'
                 : chain.hasFloors ? 'Floor prices available'
                 : chain.label + ' has no marketplace floor feed — values are typed in by hand';
             b.onclick = () => toggleNftScanChain(k);
@@ -8798,7 +8834,7 @@ SOL,100</pre></div>
         // Alchemy is the fast, complete path but it only knows what a wallet holds *now*.
         // "All ever owned" is a history question, so it stays on Etherscan transfers.
         const useAlchemy = hasAlchemyKey() && nftScanMode === 'held';
-        nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: useAlchemy ? 'alchemy' : 'etherscan', ethUsd: 0, alchemyFailed: '', chainErrors: [] };
+        nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: useAlchemy ? 'alchemy' : 'etherscan', ethUsd: 0, solIndexOk: false, solUnmatched: 0, alchemyFailed: '', chainErrors: [] };
         closeModal('addNFTModal');
         resetNftScanPanel();
         showModal('nftScanProgressModal');
@@ -8835,8 +8871,12 @@ SOL,100</pre></div>
             // Phase 3 — resolve images. Alchemy already returned cached CDN artwork, so this
             // whole leg (tokenURI reads + IPFS gateway roulette) only runs on the Etherscan path.
             if (nftScanState.source !== 'alchemy') {
-                const metaTargets = records.slice(0, NFT_SCAN_MAX_METADATA);
-                if (records.length > metaTargets.length) nftScanState.metaCapped = true;
+                // Solana rides this path whenever the user has no Alchemy key, but DAS already
+                // returned its artwork — and resolveNftArtwork only speaks EVM tokenURI, so
+                // pointing it at a Solana mint would burn the budget to fail. Skip them.
+                const needsArt = records.filter(r => (NFT_SCAN_CHAINS[r.chain] || {}).kind === 'evm');
+                const metaTargets = needsArt.slice(0, NFT_SCAN_MAX_METADATA);
+                if (needsArt.length > metaTargets.length) nftScanState.metaCapped = true;
                 let done = 0;
                 for (let i = 0; i < metaTargets.length; i += 4) {
                     if (nftScanState.cancelled) break;
@@ -8878,7 +8918,7 @@ SOL,100</pre></div>
                 // spend the lookup budget proving it.
                 const needFloor = contracts.filter(r =>
                     !pricedByContract.has(r.contract.toLowerCase()) &&
-                    NFT_SCAN_CHAINS[r.chain] && NFT_SCAN_CHAINS[r.chain].hasFloors);
+                    (NFT_SCAN_CHAINS[r.chain] || {}).floorSource === 'alchemy');
                 const floorTargets = needFloor.slice(0, NFT_ALCHEMY_MAX_FLOOR_LOOKUPS);
                 if (needFloor.length > floorTargets.length) nftScanState.floorCapped = true;
                 for (let i = 0; i < floorTargets.length; i++) {
@@ -8890,8 +8930,12 @@ SOL,100</pre></div>
                     nftFloorCache[k] = eth > 0 && ethUsd > 0 ? eth * ethUsd : null;
                 }
             } else {
-                const floorTargets = contracts.slice(0, NFT_SCAN_MAX_FLOOR_LOOKUPS);
-                if (contracts.length > floorTargets.length) nftScanState.floorCapped = true;
+                // CoinGecko's NFT endpoint is keyed by EVM contract address, so only chains
+                // carrying a coingeckoPlatform can be asked. The rest would spend a cap slot
+                // to be told no.
+                const askable = contracts.filter(r => (NFT_SCAN_CHAINS[r.chain] || {}).coingeckoPlatform);
+                const floorTargets = askable.slice(0, NFT_SCAN_MAX_FLOOR_LOOKUPS);
+                if (askable.length > floorTargets.length) nftScanState.floorCapped = true;
                 for (let i = 0; i < floorTargets.length; i++) {
                     if (nftScanState.cancelled || nftScanState.floorRateLimited) break;
                     const rec = floorTargets[i];
@@ -8900,6 +8944,9 @@ SOL,100</pre></div>
                     if (i < floorTargets.length - 1) await delay(1400); // CoinGecko free tier
                 }
             }
+            // Solana is priced the same way on both paths above — neither the Alchemy branch
+            // nor the CoinGecko-by-contract branch can reach it.
+            await runSolanaFloorPass(contracts);
             if (nftScanState.cancelled) return abortNftScan();
 
             // Phase 5 — mark what's already in the gallery, then hand it to the user
@@ -8994,7 +9041,7 @@ SOL,100</pre></div>
             return discoverAlchemyNfts(chain, wallet, ledger);
         }
         if (chain.kind === 'evm') return discoverEvmNfts(chain, wallet, ledger);
-        // Part 2: Solana via Helius plugs in here as another `kind`.
+        if (chain.kind === 'solana') return discoverSolanaNfts(chain, wallet, ledger);
         console.warn('[NFT-Scan] no discovery handler for chain kind:', chain.kind);
     }
 
@@ -9146,6 +9193,218 @@ SOL,100</pre></div>
             return typeof v === 'number' && v > 0 ? v : 0;
         } catch (e) {
             return 0;
+        }
+    }
+
+    // --- Solana: Helius DAS ------------------------------------------------
+    // getAssetsByOwner answers "what does this wallet hold right now" for regular, programmable
+    // and compressed NFTs in one paged call, with artwork and collection metadata inline — so
+    // Solana needs no tokenURI reads and no IPFS gateway walk, the same shortcut Alchemy gives
+    // us on EVM. There is no cheap ownership-history equivalent, so Solana always contributes
+    // current holdings even when the scan mode is "all ever owned".
+    //
+    // DAS is a Helius extension: the public RPCs in SOLANA_RPCS return "method not found" for
+    // it. preferUrls puts Helius first, and a Helius-only failure surfaces as a chain error
+    // rather than sinking the scan.
+    async function discoverSolanaNfts(chain, wallet, ledger) {
+        const owner = wallet.address;
+        let page = 1;
+        for (;;) {
+            if (nftScanState.cancelled) return;
+            const res = await solanaRpcCall('getAssetsByOwner', {
+                ownerAddress: owner,
+                page,
+                limit: NFT_DAS_PAGE_SIZE,
+                displayOptions: { showCollectionMetadata: true, showUnverifiedCollections: true },
+            }, { preferUrls: HELIUS_SOLANA_RPCS });
+
+            const items = (res && res.items) || [];
+            items.forEach(a => {
+                const mint = a && a.id;
+                if (!mint) return;
+                if (a.burnt) return;
+                // showFungible is off, but a wallet's SPL tokens can still surface as
+                // FungibleToken/FungibleAsset on some Helius versions. Those aren't NFTs.
+                if (/^Fungible/i.test(a.interface || '')) return;
+
+                const group = (a.grouping || []).find(g => g.group_key === 'collection') || {};
+                const collMeta = group.collection_metadata || {};
+                // Identity: the collection mint stands in for `contract`, the asset mint for
+                // `tokenId`. That's what makes "→ all", the floor cache and the collection
+                // filter work on Solana exactly as they do on EVM. A 1/1 with no collection
+                // grouping is its own collection, keyed by its own mint.
+                const collectionMint = group.group_value || mint;
+                const key = nftKey(chain.key, collectionMint, mint);
+
+                const seen = ledger.get(key);
+                if (seen) {
+                    if (seen.walletIds.indexOf(wallet.id) === -1) {
+                        seen.walletIds.push(wallet.id);
+                        seen.walletLabels.push(wallet.label);
+                    }
+                    return;
+                }
+
+                const content = a.content || {};
+                const meta = content.metadata || {};
+                const candidates = solanaImageCandidates(content);
+
+                ledger.set(key, {
+                    key, chain: chain.key,
+                    contract: collectionMint,
+                    tokenId: mint,
+                    standard: (a.compression && a.compression.compressed) ? 'cnft' : 'spl-nft',
+                    // collection_metadata is only present on verified collections; a 1/1 falls
+                    // back to its own name so it never lands in the grid as "Unknown collection".
+                    collection: safeText(collMeta.name || meta.symbol || meta.name || ''),
+                    tokenName: safeText(meta.name || ''),
+                    image: candidates[0] || '',
+                    imageCandidates: candidates,
+                    floorEth: 0,           // no ETH-denominated floor on Solana; runSolanaFloorPass prices it
+                    // DAS carries no spam verdict, so the local heuristics do the work here.
+                    alchemySpam: false,
+                    spamClassifications: [],
+                    walletIds: [wallet.id], walletLabels: [wallet.label],
+                    held: true, everOwned: true, lastBlock: 0,
+                });
+            });
+
+            nftScanProgress(null, ledger.size + ' NFTs found — ' + wallet.label + ' (page ' + page + ')');
+            if (items.length < NFT_DAS_PAGE_SIZE) return;      // last page
+            if (page >= NFT_DAS_MAX_PAGES) { nftScanState.truncated = true; return; }
+            page++;
+        }
+    }
+
+    // Helius mirrors artwork on its own CDN and hands back the original URI alongside it.
+    // Same shape of problem as Alchemy's cache: cdn_uri is fastest when it's there and useless
+    // when it isn't, so collect every URL and let bindNftImage walk them.
+    function solanaImageCandidates(content) {
+        const list = [];
+        const push = u => { if (u && typeof u === 'string' && list.indexOf(u) === -1) list.push(u); };
+        const files = Array.isArray(content.files) ? content.files : [];
+        // An image mime wins over whatever happens to be first — some assets list a video or
+        // a glb ahead of the still that actually renders in an <img>.
+        const images = files.filter(f => f && /^image\//i.test(f.mime || ''));
+        (images.length ? images : files).forEach(f => {
+            push(f.cdn_uri);
+            httpCandidates(f.uri || '').forEach(push);
+        });
+        httpCandidates((content.links && content.links.image) || '').forEach(push);
+        return list;
+    }
+
+    // --- Solana floors: CoinGecko -----------------------------------------
+    // Magic Eden has by far the best Solana floor data, and it cannot be used from here:
+    // api-mainnet.magiceden.dev sends no Access-Control-Allow-Origin header on either the
+    // request or the preflight, so a browser blocks every call. (curl and Node see 200s
+    // because neither enforces CORS — don't be fooled by testing it outside a browser.)
+    //
+    // CoinGecko does send `Access-Control-Allow-Origin: *` and quotes NFT floors straight in
+    // USD, so no SOL spot price is needed. The catch: it indexes Solana collections with an
+    // EMPTY contract_address, so /nfts/solana/contract/<mint> always 404s — the mint is not a
+    // usable join key. The only join left is the collection *name*, so the whole Solana
+    // platform index (~350 collections, 2 pages) is pulled once and matched against the name
+    // Helius reports. A collection CoinGecko doesn't list, or lists under a different name,
+    // simply gets no floor and the user prices it by hand — same as Polygon and Zora.
+    let coingeckoSolanaIndex = null;    // { byName: Map, bySymbol: Map } or null until loaded
+
+    function normalizeCollectionName(s) {
+        return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '');
+    }
+
+    async function loadCoingeckoSolanaIndex() {
+        if (coingeckoSolanaIndex) return coingeckoSolanaIndex;
+        const rows = [];
+        for (let page = 1; page <= 3; page++) {
+            const r = await fetch('https://api.coingecko.com/api/v3/nfts/list?asset_platform_id=solana&per_page=250&page=' + page);
+            if (r.status === 429) { nftScanState.floorRateLimited = true; break; }
+            if (!r.ok) break;
+            const d = await r.json();
+            if (!Array.isArray(d) || d.length === 0) break;
+            rows.push.apply(rows, d);
+            if (d.length < 250) break;
+            await delay(1400);
+        }
+        if (rows.length === 0) return null;
+
+        // Names are the primary key. Symbols are a fallback and a poor one — the index is full
+        // of one-letter symbols like "A" and "ABC" — so a symbol is only allowed to resolve a
+        // collection when it is unique across the whole index.
+        const byName = new Map();
+        const symCounts = new Map();
+        rows.forEach(c => {
+            const n = normalizeCollectionName(c.name);
+            if (n && !byName.has(n)) byName.set(n, c.id);
+            const s = normalizeCollectionName(c.symbol);
+            if (s) symCounts.set(s, (symCounts.get(s) || 0) + 1);
+        });
+        const bySymbol = new Map();
+        rows.forEach(c => {
+            const s = normalizeCollectionName(c.symbol);
+            if (s && symCounts.get(s) === 1 && !bySymbol.has(s)) bySymbol.set(s, c.id);
+        });
+
+        coingeckoSolanaIndex = { byName, bySymbol };
+        console.log('[NFT-Scan] CoinGecko Solana index: ' + rows.length + ' collections, ' +
+            byName.size + ' by name, ' + bySymbol.size + ' by unique symbol');
+        return coingeckoSolanaIndex;
+    }
+
+    // CoinGecko quotes NFT floors in USD directly, so this needs no conversion.
+    async function fetchCoingeckoNftFloorUsd(id) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const r = await fetch('https://api.coingecko.com/api/v3/nfts/' + encodeURIComponent(id));
+                if (r.status === 429) {
+                    if (attempt === 0) { await delay(4000); continue; }
+                    nftScanState.floorRateLimited = true;   // stop hammering; the rest go unpriced
+                    return 0;
+                }
+                if (!r.ok) return 0;
+                const d = await r.json();
+                const usd = d && d.floor_price && typeof d.floor_price.usd === 'number' ? d.floor_price.usd : 0;
+                return usd > 0 ? usd : 0;
+            } catch (e) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    // Prices every Solana collection in `contracts` into nftFloorCache. Runs on both the
+    // Alchemy and Etherscan paths, because neither of them can price Solana.
+    async function runSolanaFloorPass(contracts) {
+        const targets = contracts.filter(r => (NFT_SCAN_CHAINS[r.chain] || {}).floorSource === 'coingecko-solana');
+        if (targets.length === 0) return;
+
+        nftScanProgress('Checking Solana floors', 'Loading the CoinGecko collection index');
+        let index = null;
+        try { index = await loadCoingeckoSolanaIndex(); }
+        catch (e) { console.warn('[NFT-Scan] CoinGecko Solana index failed:', e); }
+        nftScanState.solIndexOk = !!index;
+        if (!index) return;   // no index, no join key — leave them unpriced rather than guess
+
+        // Only collections that actually resolved to a CoinGecko id cost a request, so the
+        // cap applies to those rather than to every collection held.
+        const resolved = [];
+        targets.forEach(rec => {
+            const id = index.byName.get(normalizeCollectionName(rec.collection)) ||
+                       index.bySymbol.get(normalizeCollectionName(rec.collection));
+            if (id) resolved.push({ rec, id });
+            else nftFloorCache[String(rec.contract).toLowerCase()] = null;
+        });
+        nftScanState.solUnmatched = targets.length - resolved.length;
+
+        const capped = resolved.slice(0, NFT_SCAN_MAX_FLOOR_LOOKUPS);
+        if (resolved.length > capped.length) nftScanState.floorCapped = true;
+        for (let i = 0; i < capped.length; i++) {
+            if (nftScanState.cancelled || nftScanState.floorRateLimited) break;
+            const { rec, id } = capped[i];
+            nftScanProgress('Checking Solana floors', (i + 1) + '/' + capped.length + ' — ' + (rec.collection || 'collection'));
+            const usd = await fetchCoingeckoNftFloorUsd(id);
+            nftFloorCache[String(rec.contract).toLowerCase()] = usd > 0 ? usd : null;
+            if (i < capped.length - 1) await delay(1400);   // CoinGecko free tier
         }
     }
 
@@ -9687,6 +9946,18 @@ SOL,100</pre></div>
         if (!alchemy && nftScanState.metaCapped) notes.push('Artwork was resolved for the ' + NFT_SCAN_MAX_METADATA + ' most recent NFTs; the rest show a placeholder.');
         if (nftScanState.floorCapped) notes.push('Floor prices were checked for the first ' + (alchemy ? NFT_ALCHEMY_MAX_FLOOR_LOOKUPS : NFT_SCAN_MAX_FLOOR_LOOKUPS) + ' collections that needed a lookup.');
         if (alchemy && !nftScanState.ethUsd) notes.push('The ETH price could not be fetched, so floors that were quoted in ETH are missing — click any value to set one.');
+        if (results.some(r => r.chain === 'solana')) {
+            notes.push('Solana came from Helius, which returns current holdings only — “all ever owned” does not apply to it.');
+            if (!nftScanState.solIndexOk) {
+                notes.push('CoinGecko’s Solana collection list could not be loaded, so Solana collections are unpriced — click any value to set one across the whole collection.');
+            } else {
+                notes.push('Solana floors are matched to CoinGecko by collection name, since it publishes no mint address to match on. A collection it lists under a different name shows no floor even when it is worth something.');
+                if (nftScanState.solUnmatched > 0) {
+                    notes.push(nftScanState.solUnmatched + ' Solana collection' + (nftScanState.solUnmatched !== 1 ? 's' : '') +
+                        ' had no CoinGecko match, so ' + (nftScanState.solUnmatched !== 1 ? 'they are' : 'it is') + ' unpriced.');
+                }
+            }
+        }
         if (nftScanState.floorRateLimited) notes.push('CoinGecko rate-limited the floor lookups, so some values are empty — you can type them in later.');
         if (nftScanState.truncated) notes.push(alchemy ? 'A wallet holds more NFTs than one scan reads; some may be missing.' : 'A wallet had more transfers than one scan can read; very old NFTs may be missing.');
         // The spam test reads image/name/floor, and the lookups are capped — so past those caps it is
