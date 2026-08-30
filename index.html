@@ -1661,6 +1661,9 @@
                     <div class="input-label" style="margin-bottom:5px">Image URL</div>
                     <input type="text" id="nftArtInput" class="token-input" style="width:100%" placeholder="https://i.seadn.io/… or any direct image link" autocomplete="off" spellcheck="false">
                     <div class="modal-hint" style="margin-top:6px;line-height:1.5">Open the NFT on OpenSea, right-click its image → “Copy image address”, and paste it here. Any direct image URL works.</div>
+                    <div class="input-label" style="margin:12px 0 5px">OpenSea link <span style="color:#666;font-weight:400">— optional</span></div>
+                    <input type="text" id="nftArtOsInput" class="token-input" style="width:100%" placeholder="https://opensea.io/item/ink/0x…/352" autocomplete="off" spellcheck="false">
+                    <div class="modal-hint" id="nftArtOsHint" style="margin-top:6px;line-height:1.5"></div>
                     <div id="nftArtLinks" style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;font-size:0.72rem"></div>
                 </div>
             </div>
@@ -7769,11 +7772,33 @@ SOL,100</pre></div>
 
     function openseaItemUrl(url) {
         const m = nftMeta[url];
-        if (!m || !m.contract || m.tokenId == null) return '';
+        if (!m) return '';
+        if (m.openseaUrl) return m.openseaUrl;          // pasted by hand, wins outright
+        if (!m.contract || m.tokenId == null) return ''; // manually added: no identity to build from
         const chain = NFT_SCAN_CHAINS[m.chain || 'ethereum'];
         if (!chain || !chain.openseaSlug) return '';   // no OpenSea presence we can link to
         // OpenSea's current item route; /assets/ still works but 308-redirects.
         return 'https://opensea.io/item/' + chain.openseaSlug + '/' + m.contract + '/' + m.tokenId;
+    }
+
+    // Why there's no link, so the modal can say something true rather than blame the chain.
+    function openseaLinkGap(url) {
+        const m = nftMeta[url];
+        if (!m || (!m.contract && !m.openseaUrl)) return 'no-identity';
+        const chain = NFT_SCAN_CHAINS[(m || {}).chain || 'ethereum'];
+        if (!chain || !chain.openseaSlug) return 'chain';
+        return '';
+    }
+
+    // Accepts an OpenSea item link and pulls the chain/contract/tokenId back out of it, so a
+    // hand-added NFT gains the identity a scan would have given it. Collection links carry no
+    // token, so they're kept purely as a link.
+    function parseOpenseaUrl(u) {
+        const m = String(u || '').match(/opensea\.io\/(?:item|assets)\/([a-z0-9_-]+)\/(0x[a-fA-F0-9]{40})\/([^/?#]+)/i);
+        if (!m) return null;
+        const slug = m[1].toLowerCase();
+        const chainKey = Object.keys(NFT_SCAN_CHAINS).find(k => NFT_SCAN_CHAINS[k].openseaSlug === slug);
+        return { slug, chainKey: chainKey || '', contract: m[2], tokenId: decodeURIComponent(m[3]) };
     }
 
     function openNftArtModal(idx) {
@@ -7787,14 +7812,22 @@ SOL,100</pre></div>
         document.getElementById('nftArtInput').value = meta.artOverride || '';
         bindNftImage(document.getElementById('nftArtPreview'), galleryImageCandidates(url), meta.placeholder || '');
 
+        document.getElementById('nftArtOsInput').value = meta.openseaUrl || '';
+        document.getElementById('nftArtOsHint').innerHTML = meta.contract
+            ? 'Paste a link to override the one below.'
+            : 'This NFT was added by hand, so it has no contract or token ID. Paste its OpenSea link and the ID is read back out of it — which also enables “→ all” for its collection.';
+
         const links = document.getElementById('nftArtLinks');
         const os = openseaItemUrl(url);
+        const gap = openseaLinkGap(url);
         links.innerHTML = os
             ? '<a href="' + escapeHtml(os) + '" target="_blank" rel="noopener" style="color:#00d4ff">↗ Open on OpenSea</a>'
-            : '<span style="color:#666">No OpenSea link for this chain — paste any image URL.</span>';
+            : gap === 'chain'
+                ? '<span style="color:#666">This chain has no OpenSea pages — paste a link above if there is one.</span>'
+                : '<span style="color:#666">No OpenSea link yet — paste one above.</span>';
 
         const clearBtn = document.getElementById('nftArtClearBtn');
-        clearBtn.style.display = meta.artOverride ? '' : 'none';
+        clearBtn.style.display = (meta.artOverride || meta.openseaUrl) ? '' : 'none';
         showModal('nftArtModal', true);   // the reorder overlay sits above normal modals
         setTimeout(() => document.getElementById('nftArtInput').focus(), 30);
     }
@@ -7804,24 +7837,49 @@ SOL,100</pre></div>
         const url = nftGallery[idx];
         if (!url) return;
         const v = document.getElementById('nftArtInput').value.trim();
-        if (!v) { toast('Paste an image URL, or use “Reset to original”', 'warning'); return; }
-        if (!/^(https?:|data:image\/|ipfs:)/i.test(v)) { toast('That does not look like an image URL', 'warning'); return; }
+        const os = document.getElementById('nftArtOsInput').value.trim();
+        if (!v && !os) { toast('Paste an image URL or an OpenSea link', 'warning'); return; }
+        if (v && !/^(https?:|data:image\/|ipfs:)/i.test(v)) { toast('That does not look like an image URL', 'warning'); return; }
+        if (os && !/^https?:\/\/(www\.)?opensea\.io\//i.test(os)) { toast('That does not look like an OpenSea link', 'warning'); return; }
 
-        // ipfs:// gets expanded across gateways the same way scanned artwork does.
-        const resolved = v.toLowerCase().startsWith('ipfs:') ? (httpCandidates(v)[0] || v) : v;
         if (!nftMeta[url]) nftMeta[url] = {};
-        nftMeta[url].artOverride = resolved;
+        const meta = nftMeta[url];
+        const notes = [];
+
+        if (v) {
+            // ipfs:// gets expanded across gateways the same way scanned artwork does.
+            meta.artOverride = v.toLowerCase().startsWith('ipfs:') ? (httpCandidates(v)[0] || v) : v;
+            notes.push('artwork replaced');
+        }
+
+        if (os) {
+            meta.openseaUrl = os;
+            notes.push('OpenSea link saved');
+            // An item link carries the identity a hand-added NFT never had. Filling it in
+            // makes collection pricing and duplicate-detection work for this NFT too.
+            const parsed = parseOpenseaUrl(os);
+            if (parsed && !meta.contract) {
+                meta.contract = parsed.contract;
+                meta.tokenId = parsed.tokenId;
+                if (parsed.chainKey) meta.chain = parsed.chainKey;
+                notes.push('collection linked');
+            }
+        }
+
         saveNftMeta();
         closeModal('nftArtModal');
         if (nftReorderView === 'table') renderReorderTable(); else renderReorderGrid();
         updateNFTDisplay();
-        toast('Artwork replaced', 'success');
+        toast(notes.join(' · '), 'success');
     }
 
     function clearNftArtOverride() {
         const url = nftGallery[nftArtEditIdx];
         if (!url || !nftMeta[url]) return;
+        // Clears only what was set by hand here. Identity read from an OpenSea link stays,
+        // since collection pricing may now depend on it.
         delete nftMeta[url].artOverride;
+        delete nftMeta[url].openseaUrl;
         saveNftMeta();
         closeModal('nftArtModal');
         if (nftReorderView === 'table') renderReorderTable(); else renderReorderGrid();
