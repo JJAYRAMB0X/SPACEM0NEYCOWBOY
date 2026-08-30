@@ -610,6 +610,17 @@
         .nft-table-art.set { color: #f59e0b; border-color: rgba(245,158,11,0.45); }
         .nft-table-del { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 6px; padding: 2px 7px; font-size: 0.7rem; cursor: pointer; font-family: inherit; line-height: 1.2; }
         .nft-table-del:hover { background: #ef4444; color: #fff; }
+        /* Tag picker above the gallery card. Wraps rather than scrolls, so no tag is hidden
+           behind a scroll the user has no reason to suspect is there. */
+        .nft-play-tag-bar { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; margin-bottom: 8px; }
+        .nft-play-tag {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+            color: #8a8a99; border-radius: 999px; padding: 2px 8px; font-size: 0.6rem;
+            font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap;
+            transition: all 0.15s; max-width: 110px; overflow: hidden; text-overflow: ellipsis;
+        }
+        .nft-play-tag:hover { border-color: rgba(255,255,255,0.3); color: #ccd; }
+        .nft-play-tag .nft-play-tag-n { opacity: 0.6; font-weight: 500; }
         /* Tag chips in the list view, and the per-NFT tag menu they open. */
         .nft-tag-cell { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; cursor: pointer; min-height: 20px; max-width: 190px; }
         .nft-tag-chip { display: inline-block; font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; white-space: nowrap; line-height: 1.5; }
@@ -1241,12 +1252,9 @@
                 </div>
                 <div class="section-body" id="nftGalleryBody">
                     <button class="btn btn-primary btn-full" onclick="openAddNFTModal()" style="margin-bottom:12px">➕ Add NFT</button>
-                    <!-- Says why the gallery is showing a subset. Without it a filtered
-                         slideshow just looks like most of the collection disappeared. -->
-                    <div id="nftPlayTagChip" style="display:none;align-items:center;gap:6px;justify-content:center;margin-bottom:8px;padding:3px 10px;border:1px solid;border-radius:999px;font-size:0.65rem;font-weight:600">
-                        <span>Showing</span><span class="nft-play-tag-label"></span>
-                        <button onclick="clearNftPlayTag()" title="Show the whole gallery again" style="background:none;border:none;color:inherit;cursor:pointer;font-size:0.75rem;padding:0 0 0 2px;font-family:inherit;opacity:0.7">✕</button>
-                    </div>
+                    <!-- Every tag, as a picker: what the gallery, slideshow, screensaver and
+                         collage are scoped to. Filled by syncNftPlayTagUI. -->
+                    <div id="nftPlayTagBar" class="nft-play-tag-bar" style="display:none"></div>
                     <div id="nftViewer" class="nft-viewer" style="display:none">
                         <div class="nft-img-wrap">
                             <img id="nftImg" class="nft-img" src="" alt="NFT">
@@ -2450,23 +2458,50 @@ SOL,100</pre></div>
         if (screensaverActive) showSsNftImage(screensaverNftIdx);
     }
 
-    // The chip on the gallery widget, so a filtered slideshow outside the manage overlay
-    // explains itself instead of looking like most of the gallery vanished.
-    function syncNftPlayTagUI() {
-        const el = document.getElementById('nftPlayTagChip');
-        if (!el) return;
-        if (!nftPlayTag) { el.style.display = 'none'; return; }
-        el.style.display = '';
-        const col = nftTagColor(nftPlayTag);
-        el.style.borderColor = col + '99';
-        el.style.color = col;
-        el.querySelector('.nft-play-tag-label').textContent =
-            nftTagLabel(nftPlayTag) + ' · ' + playableNftCount() + ' of ' + nftGallery.length;
-        const sel = document.getElementById('nftTableTagFilter');
-        if (sel && sel.value !== nftPlayTag) sel.value = nftPlayTag;
+    // Compact label for the picker. Chain tags get their short form so eight of them fit on
+    // one row; a custom tag keeps the name the user chose, trimmed by CSS if it is long.
+    function nftTagShortLabel(name) {
+        if (nftTagDefs[name]) return name;
+        if (name === NFT_MANUAL_TAG) return 'Hand';
+        const c = NFT_SCAN_CHAINS[name];
+        return (c && c.short) || nftTagLabel(name);
     }
 
-    function clearNftPlayTag() { setNftPlayTag(''); renderReorderTable(); }
+    // The tag picker above the gallery card: every tag, clickable, so what you are watching
+    // can be changed without opening the manage overlay. Also the thing that explains a
+    // filtered slideshow, which would otherwise look like most of the gallery had vanished.
+    function syncNftPlayTagUI() {
+        const sel = document.getElementById('nftTableTagFilter');
+        if (sel && sel.value !== nftPlayTag) sel.value = nftPlayTag;
+
+        const bar = document.getElementById('nftPlayTagBar');
+        if (!bar) return;
+        // Counts come from allNftTags rather than being recomputed per chip — otherwise this
+        // walks the gallery once for every tag on it.
+        const tags = allNftTags().filter(t => t.count > 0 || t.custom);
+        // One tag means no choice to offer, and no filter can be active.
+        if (tags.length < 2 && !nftPlayTag) { bar.style.display = 'none'; return; }
+        bar.style.display = 'flex';
+        bar.innerHTML = '';
+
+        const chip = (name, label, count, color, active) => {
+            const b = document.createElement('button');
+            b.className = 'nft-play-tag';
+            b.title = name ? 'Watch only ' + nftTagLabel(name) + ' (' + count + ')' : 'Watch the whole gallery';
+            b.innerHTML = escapeHtml(label) + ' <span class="nft-play-tag-n">' + count + '</span>';
+            if (active) {
+                b.style.background = color + '26';
+                b.style.borderColor = color + '99';
+                b.style.color = color;
+            }
+            b.addEventListener('click', () => { setNftPlayTag(name); renderReorderTable(); });
+            bar.appendChild(b);
+        };
+
+        chip('', 'All', nftGallery.length, '#00d4ff', !nftPlayTag);
+        tags.forEach(t => chip(t.name, nftTagShortLabel(t.name), t.count, t.color, nftPlayTag === t.name));
+    }
+
 
     function nftChainTag(url) { return (nftMeta[url] || {}).chain || NFT_MANUAL_TAG; }
     function isNftChainTag(name) { return name === NFT_MANUAL_TAG || !!NFT_SCAN_CHAINS[name]; }
@@ -8058,6 +8093,9 @@ SOL,100</pre></div>
     }
 
     function updateNFTDisplay() {
+        // Here rather than only at the call sites that change the filter, so the counts on the
+        // chips track adds, deletes and tag edits without every one of those remembering to.
+        syncNftPlayTagUI();
         const viewer = document.getElementById('nftViewer');
         const empty = document.getElementById('nftEmpty');
         if (nftGallery.length === 0) { viewer.style.display = 'none'; empty.style.display = 'block'; return; }
@@ -9463,7 +9501,7 @@ SOL,100</pre></div>
     // just "not null", kept as its own field because the picker and the notes both read it.
     const NFT_SCAN_CHAINS = {
         ethereum: {
-            key: 'ethereum', kind: 'evm', label: 'Ethereum',
+            key: 'ethereum', kind: 'evm', label: 'Ethereum', short: 'ETH',
             walletChainType: 'evm',
             etherscanChainId: 1,          // presence of this = "all ever owned" is possible
             alchemyNetwork: 'eth-mainnet',
@@ -9477,28 +9515,28 @@ SOL,100</pre></div>
         // Base is the only L2 here with a working floor feed: openSeaMetadata carries a
         // price and getFloorPrice answers properly, unlike Polygon/Zora/Robinhood.
         base: {
-            key: 'base', kind: 'evm', label: 'Base',
+            key: 'base', kind: 'evm', label: 'Base', short: 'BASE',
             walletChainType: 'evm',
             alchemyNetwork: 'base-mainnet',
             openseaSlug: 'base',
             hasFloors: true, floorSource: 'alchemy',
         },
         polygon: {
-            key: 'polygon', kind: 'evm', label: 'Polygon',
+            key: 'polygon', kind: 'evm', label: 'Polygon', short: 'POLY',
             walletChainType: 'evm',
             alchemyNetwork: 'polygon-mainnet',
             openseaSlug: 'polygon',
             hasFloors: false,
         },
         zora: {
-            key: 'zora', kind: 'evm', label: 'Zora',
+            key: 'zora', kind: 'evm', label: 'Zora', short: 'ZORA',
             walletChainType: 'evm',
             alchemyNetwork: 'zora-mainnet',
             openseaSlug: 'zora',
             hasFloors: false,
         },
         robinhood: {
-            key: 'robinhood', kind: 'evm', label: 'Robinhood',
+            key: 'robinhood', kind: 'evm', label: 'Robinhood', short: 'RH',
             walletChainType: 'evm',
             alchemyNetwork: 'robinhood-mainnet',
             openseaSlug: 'robinhood',
@@ -9508,7 +9546,7 @@ SOL,100</pre></div>
         // "This endpoint isn't enabled for that chain or network just yet". Enabling Ink on
         // the dashboard does not change that, so it stays unselectable until they ship it.
         ink: {
-            key: 'ink', kind: 'evm', label: 'Ink',
+            key: 'ink', kind: 'evm', label: 'Ink', short: 'INK',
             walletChainType: 'evm',
             alchemyNetwork: 'ink-mainnet',
             openseaSlug: 'ink',
@@ -9524,7 +9562,7 @@ SOL,100</pre></div>
         // The item link is Magic Eden — that's a plain <a href>, so its missing CORS headers,
         // which rule it out as a floor feed, don't matter here.
         solana: {
-            key: 'solana', kind: 'solana', label: 'Solana',
+            key: 'solana', kind: 'solana', label: 'Solana', short: 'SOL',
             walletChainType: 'solana',
             hasFloors: true, floorSource: 'coingecko-solana',
             marketName: 'Magic Eden',
