@@ -1873,8 +1873,8 @@ SOL,100</pre></div>
             <div class="fs-header">
                 <div class="fs-title">⊞ Reorder NFTs</div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('value')" title="Highest value first">💎 Most valuable</button>
-                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('collection')" title="Group each collection together, most valuable collection first">🗂️ By collection</button>
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('value')" title="Collections led by your single best piece — each collection still stays together">💎 Most valuable</button>
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('collection')" title="Collections ranked by what the whole holding is worth">🗂️ By collection</button>
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="exportNftCollage()" title="Save the whole gallery as one JPG">🖼️ Export JPG</button>
                     <button class="btn btn-danger" style="padding:6px 12px;font-size:0.75rem" onclick="closeOverlay('nftReorderOverlay')">✕ Close</button>
                 </div>
@@ -7431,30 +7431,39 @@ SOL,100</pre></div>
         const current = nftGallery[nftIdx];
         const val = u => nftValues[u] || 0;
 
-        if (mode === 'value') {
-            nftGallery.sort((a, b) => val(b) - val(a) || nftCollectionOf(a).localeCompare(nftCollectionOf(b)));
-        } else {
-            // Collections ordered by what they're collectively worth, and within a collection
-            // by value — so the strongest pieces lead each group.
-            const totals = new Map();
-            nftGallery.forEach(u => {
-                const c = nftCollectionOf(u);
-                totals.set(c, (totals.get(c) || 0) + val(u));
-            });
-            nftGallery.sort((a, b) => {
-                const ca = nftCollectionOf(a), cb = nftCollectionOf(b);
-                if (ca !== cb) return (totals.get(cb) - totals.get(ca)) || ca.localeCompare(cb);
-                return val(b) - val(a);
-            });
-        }
+        // Collections are ALWAYS kept contiguous. Sorting purely by number is what makes
+        // OpenSea shuffle near-identical floors into an unreadable blob — a few collections
+        // sitting around the same price interleave and none of them reads as a set. The two
+        // modes differ only in how the groups themselves are ranked.
+        const best = new Map(), total = new Map();
+        nftGallery.forEach(u => {
+            const c = nftCollectionOf(u);
+            best.set(c, Math.max(best.get(c) || 0, val(u)));
+            total.set(c, (total.get(c) || 0) + val(u));
+        });
+        // 'value'      → led by the single best piece you own in it
+        // 'collection' → led by what the whole holding is worth
+        const rank = mode === 'value' ? c => best.get(c) : c => total.get(c);
+
+        nftGallery.sort((a, b) => {
+            const ca = nftCollectionOf(a), cb = nftCollectionOf(b);
+            if (ca !== cb) {
+                // Every tie falls through to a stable, name-based order, so equal-valued
+                // collections still come out as clean blocks rather than shuffled.
+                return (rank(cb) - rank(ca)) || (total.get(cb) - total.get(ca)) || ca.localeCompare(cb);
+            }
+            return val(b) - val(a);
+        });
 
         const newIdx = nftGallery.indexOf(current);
         if (newIdx !== -1) nftIdx = newIdx;
         saveNFTs();
         updateNFTDisplay();
         renderReorderGrid();
-        toast(mode === 'value' ? 'Sorted by value, highest first'
-                               : 'Grouped into ' + new Set(nftGallery.map(nftCollectionOf)).size + ' collections', 'success');
+        const groups = new Set(nftGallery.map(nftCollectionOf)).size;
+        toast(mode === 'value'
+            ? 'Sorted by value · ' + groups + ' collections, each kept together'
+            : 'Grouped into ' + groups + ' collections by total value', 'success');
     }
 
     // --- collage export ----------------------------------------------------
