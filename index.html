@@ -590,6 +590,9 @@
         .nft-table-apply { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.16); color: #99a; border-radius: 6px; padding: 2px 8px; font-size: 0.66rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
         .nft-table-apply:hover { border-color: rgba(0,212,255,0.5); color: #00d4ff; }
         .nft-table-foot { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 8px 2px 0; font-size: 0.72rem; color: #889; }
+        .nft-table-art { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #99a; border-radius: 6px; padding: 2px 6px; font-size: 0.68rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
+        .nft-table-art:hover { border-color: rgba(0,212,255,0.5); color: #00d4ff; }
+        .nft-table-art.set { color: #f59e0b; border-color: rgba(245,158,11,0.45); }
         .nft-table-del { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 6px; padding: 2px 7px; font-size: 0.7rem; cursor: pointer; font-family: inherit; line-height: 1.2; }
         .nft-table-del:hover { background: #ef4444; color: #fff; }
         .nft-table-danger { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); color: #ef4444; border-radius: 999px; padding: 4px 11px; font-size: 0.66rem; cursor: pointer; font-family: inherit; }
@@ -1597,8 +1600,6 @@
                 <div id="nftScanIntro">
                     <div style="font-size:0.78rem;color:#888;margin-bottom:10px">…or pull NFTs straight from the wallets you've saved.</div>
                     <button class="btn btn-secondary btn-full" onclick="openNftScanOptions()">🔍 Scan Wallets</button>
-                    <button class="btn btn-secondary btn-full" style="margin-top:8px" onclick="repairGalleryArtwork()">🩹 Repair Artwork</button>
-                    <div class="modal-hint" style="margin-top:6px;line-height:1.5">Re-fetches images for NFTs already in your gallery — use it if artwork stopped loading. Values, order and manually added NFTs are untouched.</div>
                 </div>
                 <div id="nftScanOptions" style="display:none">
                     <div style="font-size:0.78rem;color:#aaa;margin-bottom:10px">Scan saved wallets for on-chain NFTs</div>
@@ -1641,6 +1642,30 @@
                         <button class="btn btn-secondary" onclick="startNftScan(true)" title="Ignore the selection above and scan every eligible wallet">Scan all wallets</button>
                         <button class="btn btn-primary" onclick="startNftScan()">Scan Selected</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Replace an NFT's artwork with a URL you paste (e.g. copied from OpenSea) -->
+    <div class="modal-overlay" id="nftArtModal">
+        <div class="modal" style="max-width:520px">
+            <div class="modal-title">🖼️ Replace artwork</div>
+            <div class="modal-subtitle" id="nftArtSubtitle" style="margin-bottom:14px"></div>
+            <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px">
+                <img id="nftArtPreview" alt="" style="width:96px;height:96px;object-fit:contain;background:rgba(0,0,0,0.4);border-radius:10px;border:1px solid rgba(255,255,255,0.12);flex:0 0 auto">
+                <div style="flex:1;min-width:0">
+                    <div class="input-label" style="margin-bottom:5px">Image URL</div>
+                    <input type="text" id="nftArtInput" class="token-input" style="width:100%" placeholder="https://i.seadn.io/… or any direct image link" autocomplete="off" spellcheck="false">
+                    <div class="modal-hint" style="margin-top:6px;line-height:1.5">Open the NFT on OpenSea, right-click its image → “Copy image address”, and paste it here. Any direct image URL works.</div>
+                    <div id="nftArtLinks" style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;font-size:0.72rem"></div>
+                </div>
+            </div>
+            <div class="modal-actions" style="justify-content:space-between">
+                <button class="btn btn-secondary" id="nftArtClearBtn" onclick="clearNftArtOverride()">Reset to original</button>
+                <div style="display:flex;gap:10px">
+                    <button class="btn btn-secondary" onclick="closeModal('nftArtModal')">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveNftArtOverride()">Save</button>
                 </div>
             </div>
         </div>
@@ -7473,12 +7498,17 @@ SOL,100</pre></div>
     function updateOverlayNFT() { bindGalleryNftImage(document.getElementById('overlayNFTImg'), overlayNftIdx); document.getElementById('overlayNFTCounter').textContent = (overlayNftIdx+1) + ' / ' + nftGallery.length; updateIndividualNftValueOverlay(overlayNftIdx, 'overlayNftValueOverlay'); }
 
     // Scanned NFTs carry a candidate list; manually added ones are just their own URL.
+    // A hand-set artOverride always leads, and is never discarded by a rescan or repair.
+    function galleryImageCandidates(url) {
+        const meta = nftMeta[url] || {};
+        const base = (meta.imageCandidates && meta.imageCandidates.length) ? meta.imageCandidates : [url];
+        return meta.artOverride ? [meta.artOverride].concat(base.filter(u => u !== meta.artOverride)) : base;
+    }
+
     function bindGalleryNftImage(img, idx) {
         const url = nftGallery[idx];
         if (!img || !url) return;
-        const meta = nftMeta[url] || {};
-        const list = (meta.imageCandidates && meta.imageCandidates.length) ? meta.imageCandidates : [url];
-        bindNftImage(img, list, meta.placeholder || '');
+        bindNftImage(img, galleryImageCandidates(url), (nftMeta[url] || {}).placeholder || '');
     }
     function nextNFTOverlay() { overlayNftIdx = (overlayNftIdx + 1) % nftGallery.length; updateOverlayNFT(); }
     function prevNFTOverlay() { overlayNftIdx = (overlayNftIdx - 1 + nftGallery.length) % nftGallery.length; updateOverlayNFT(); }
@@ -7549,9 +7579,7 @@ SOL,100</pre></div>
     const NFT_NO_CORS_HOSTS = ['nft-cdn.alchemy.com', 'nft2-cdn.alchemy.com'];
 
     function corsSafeNftCandidates(url) {
-        const meta = nftMeta[url] || {};
-        const list = (meta.imageCandidates && meta.imageCandidates.length) ? meta.imageCandidates : [url];
-        return list.filter(u => u && !NFT_NO_CORS_HOSTS.some(h => u.indexOf(h) !== -1));
+        return galleryImageCandidates(url).filter(u => u && !NFT_NO_CORS_HOSTS.some(h => u.indexOf(h) !== -1));
     }
 
     function loadCorsImage(url, timeoutMs) {
@@ -7731,6 +7759,70 @@ SOL,100</pre></div>
         toast('Removed 1 NFT', 'success');
     }
 
+    // --- replacing artwork by hand ----------------------------------------
+    let nftArtEditIdx = -1;
+
+    function openseaItemUrl(url) {
+        const m = nftMeta[url];
+        if (!m || !m.contract || m.tokenId == null) return '';
+        const chain = NFT_SCAN_CHAINS[m.chain || 'ethereum'];
+        if (!chain || !chain.openseaSlug) return '';   // no OpenSea presence we can link to
+        return 'https://opensea.io/assets/' + chain.openseaSlug + '/' + m.contract + '/' + m.tokenId;
+    }
+
+    function openNftArtModal(idx) {
+        const url = nftGallery[idx];
+        if (!url) return;
+        nftArtEditIdx = idx;
+        const meta = nftMeta[url] || {};
+
+        document.getElementById('nftArtSubtitle').textContent =
+            nftCollectionOf(url) + (meta.tokenId != null ? ' · #' + shortTokenId(meta.tokenId) : '');
+        document.getElementById('nftArtInput').value = meta.artOverride || '';
+        bindNftImage(document.getElementById('nftArtPreview'), galleryImageCandidates(url), meta.placeholder || '');
+
+        const links = document.getElementById('nftArtLinks');
+        const os = openseaItemUrl(url);
+        links.innerHTML = os
+            ? '<a href="' + escapeHtml(os) + '" target="_blank" rel="noopener" style="color:#00d4ff">↗ Open on OpenSea</a>'
+            : '<span style="color:#666">No OpenSea link for this chain — paste any image URL.</span>';
+
+        const clearBtn = document.getElementById('nftArtClearBtn');
+        clearBtn.style.display = meta.artOverride ? '' : 'none';
+        showModal('nftArtModal', true);   // the reorder overlay sits above normal modals
+        setTimeout(() => document.getElementById('nftArtInput').focus(), 30);
+    }
+
+    function saveNftArtOverride() {
+        const idx = nftArtEditIdx;
+        const url = nftGallery[idx];
+        if (!url) return;
+        const v = document.getElementById('nftArtInput').value.trim();
+        if (!v) { toast('Paste an image URL, or use “Reset to original”', 'warning'); return; }
+        if (!/^(https?:|data:image\/|ipfs:)/i.test(v)) { toast('That does not look like an image URL', 'warning'); return; }
+
+        // ipfs:// gets expanded across gateways the same way scanned artwork does.
+        const resolved = v.toLowerCase().startsWith('ipfs:') ? (httpCandidates(v)[0] || v) : v;
+        if (!nftMeta[url]) nftMeta[url] = {};
+        nftMeta[url].artOverride = resolved;
+        saveNftMeta();
+        closeModal('nftArtModal');
+        if (nftReorderView === 'table') renderReorderTable(); else renderReorderGrid();
+        updateNFTDisplay();
+        toast('Artwork replaced', 'success');
+    }
+
+    function clearNftArtOverride() {
+        const url = nftGallery[nftArtEditIdx];
+        if (!url || !nftMeta[url]) return;
+        delete nftMeta[url].artOverride;
+        saveNftMeta();
+        closeModal('nftArtModal');
+        if (nftReorderView === 'table') renderReorderTable(); else renderReorderGrid();
+        updateNFTDisplay();
+        toast('Back to the original artwork', 'info');
+    }
+
     function selectAllTableRows(on) {
         const rows = nftTableRows();
         rows.forEach(r => { if (on) nftTablePicked.add(r.url); else nftTablePicked.delete(r.url); });
@@ -7835,6 +7927,7 @@ SOL,100</pre></div>
               th('chain', 'Chain') +
               th('value', 'Value', ' style="text-align:right"') +
               '<th class="nosort" style="width:56px"></th>' +
+              '<th class="nosort" style="width:46px"></th>' +
               '<th class="nosort" style="width:34px"></th>' +
             '</tr></thead><tbody></tbody>';
 
@@ -7902,6 +7995,15 @@ SOL,100</pre></div>
                 cAct.appendChild(b);
             }
 
+            const cArt = document.createElement('td');
+            const art = document.createElement('button');
+            const overridden = !!(nftMeta[r.url] && nftMeta[r.url].artOverride);
+            art.className = 'nft-table-art' + (overridden ? ' set' : '');
+            art.textContent = overridden ? '🖼 set' : '🖼';
+            art.title = overridden ? 'Artwork replaced by hand — click to change or reset' : 'Replace this artwork with a URL';
+            art.addEventListener('click', e => { e.stopPropagation(); openNftArtModal(r.idx); });
+            cArt.appendChild(art);
+
             const cDel = document.createElement('td');
             const del = document.createElement('button');
             del.className = 'nft-table-del';
@@ -7910,7 +8012,7 @@ SOL,100</pre></div>
             del.addEventListener('click', e => { e.stopPropagation(); deleteOneNft(r.idx); });
             cDel.appendChild(del);
 
-            [cPick, cNum, cImg, cColl, cTok, cChain, cVal, cAct, cDel].forEach(td => tr.appendChild(td));
+            [cPick, cNum, cImg, cColl, cTok, cChain, cVal, cAct, cArt, cDel].forEach(td => tr.appendChild(td));
             tbody.appendChild(tr);
         });
         updateNftTableSelectionUI();
@@ -8030,6 +8132,7 @@ SOL,100</pre></div>
             walletChainType: 'evm',
             etherscanChainId: 1,          // presence of this = "all ever owned" is possible
             alchemyNetwork: 'eth-mainnet',
+            openseaSlug: 'ethereum',
             rpcUrl: () => EVM_RPC_URLS['ethereum'],
             coingeckoPlatform: 'ethereum',
             hasFloors: true,
@@ -8040,12 +8143,14 @@ SOL,100</pre></div>
             key: 'polygon', kind: 'evm', label: 'Polygon',
             walletChainType: 'evm',
             alchemyNetwork: 'polygon-mainnet',
+            openseaSlug: 'matic',
             hasFloors: false,
         },
         zora: {
             key: 'zora', kind: 'evm', label: 'Zora',
             walletChainType: 'evm',
             alchemyNetwork: 'zora-mainnet',
+            openseaSlug: 'zora',
             hasFloors: false,
         },
         robinhood: {
@@ -9062,80 +9167,6 @@ SOL,100</pre></div>
 
         if (healed > 0) { saveNFTs(); saveNftMeta(); saveNftValues(); updateNFTDisplay(); }
         return healed;
-    }
-
-    // Rebuilds artwork for NFTs already in the gallery, without rescanning the wallets.
-    // Entries added before candidate lists existed hold a single dead URL and cannot heal
-    // themselves, so this re-fetches their media by contract + tokenId, 100 at a time.
-    async function repairGalleryArtwork() {
-        const chain = NFT_SCAN_CHAINS.ethereum;
-        const targets = [];
-        const seen = new Set();
-        nftGallery.forEach(url => {
-            const m = nftMeta[url];
-            if (!m || !m.contract || m.tokenId == null) return;   // manual adds have no identity
-            const k = nftKey(m.chain || 'ethereum', m.contract, m.tokenId);
-            if (seen.has(k)) return;
-            seen.add(k);
-            targets.push({ contractAddress: m.contract, tokenId: String(m.tokenId) });
-        });
-        if (targets.length === 0) {
-            toast('Nothing to repair — only scanned NFTs carry the on-chain identity this needs', 'info');
-            return;
-        }
-
-        nftScanState.cancelled = false;
-        showModal('nftScanProgressModal');
-        nftScanProgress('Repairing artwork', '0/' + targets.length + ' — re-fetching media from Alchemy');
-
-        const rebuilt = [];
-        try {
-            for (let i = 0; i < targets.length; i += 100) {
-                if (nftScanState.cancelled) break;
-                const batch = targets.slice(i, i + 100);
-                const res = await fetch(alchemyNftBase(chain) + '/getNFTMetadataBatch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tokens: batch, refreshCache: false }),
-                });
-                if (res.status === 401 || res.status === 403) throw new Error('Alchemy rejected the API key');
-                if (!res.ok) throw new Error('Alchemy returned HTTP ' + res.status);
-                const data = await res.json();
-                const nfts = data.nfts || (Array.isArray(data) ? data : []);
-                nfts.forEach(n => {
-                    const c = n.contract || {};
-                    const contract = c.address || '';
-                    const tokenId = n.tokenId != null ? String(n.tokenId) : '';
-                    if (!contract || !tokenId) return;
-                    const rawImage = (n.raw && n.raw.metadata && n.raw.metadata.image) || '';
-                    const cands = nftImageCandidates(n.image || {}, rawImage);
-                    if (cands.length === 0) return;
-                    const osm = c.openSeaMetadata || {};
-                    const collection = osm.collectionName || c.name || c.symbol || '';
-                    rebuilt.push({
-                        key: nftKey('ethereum', contract, tokenId),
-                        chain: 'ethereum', contract, tokenId,
-                        collection: collection || 'Unknown collection',
-                        imageCandidates: cands,
-                        placeholder: nftPlaceholderUrl({ collection, tokenId, contract }),
-                    });
-                });
-                nftScanProgress(null, Math.min(i + 100, targets.length) + '/' + targets.length + ' — re-fetching media from Alchemy');
-            }
-        } catch (e) {
-            console.error('[NFT-Repair] failed:', e);
-            closeModal('nftScanProgressModal');
-            toast('Repair failed: ' + ((e && e.message) || 'unknown'), 'warning');
-            return;
-        }
-
-        closeModal('nftScanProgressModal');
-        const healed = healGalleryNftImages(rebuilt, true);
-        updateNFTDisplay();
-        toast(healed > 0
-            ? 'Refreshed artwork for ' + healed + ' NFT' + (healed !== 1 ? 's' : '')
-            : 'Artwork already up to date for all ' + targets.length + ' scanned NFTs',
-            healed > 0 ? 'success' : 'info');
     }
 
     // Clicking a "Spam?" badge vouches for the whole contract, not just the one token —
