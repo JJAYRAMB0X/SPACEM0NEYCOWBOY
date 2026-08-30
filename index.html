@@ -2750,6 +2750,27 @@ SOL,100</pre></div>
         syncValueFilterHiddenCount();
         renderNetwork();
         renderGlobalStats();
+        refreshNftValueDisplays();
+    }
+
+    // Every place an NFT value is shown. These are all rendered once and then left alone,
+    // so without this a currency switch updated tokens instantly while NFT figures kept
+    // showing the old currency until something else happened to redraw them.
+    function refreshNftValueDisplays() {
+        updateNftValueDisplay();
+        updateIndividualNftValueOverlay(nftIdx, 'nftValueOverlay');
+        if (document.getElementById('nftOverlay').classList.contains('active')) {
+            updateIndividualNftValueOverlay(overlayNftIdx, 'overlayNftValueOverlay');
+        }
+        if (screensaverActive) {
+            updateIndividualNftValueOverlay(screensaverNftIdx, 'ssNftValueOverlay');
+        }
+        // The reorder list shows values too — but never redraw it out from under a value
+        // the user is part-way through typing. Match the value editor specifically: every
+        // row carries a select-checkbox, so a bare `input` test is always true.
+        const reorderOpen = document.getElementById('nftReorderOverlay').classList.contains('active');
+        const editing = document.querySelector('#reorderTable .nft-table-val input');
+        if (reorderOpen && nftReorderView === 'table' && !editing) renderReorderTable();
     }
 
     // Subtle counter near the Token/Stock search label — always shows totals, ignores any value filter
