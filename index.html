@@ -621,6 +621,8 @@
         }
         .nft-play-tag:hover { border-color: rgba(255,255,255,0.3); color: #ccd; }
         .nft-play-tag .nft-play-tag-n { opacity: 0.6; font-weight: 500; }
+        .nft-play-tag-del { border-color: rgba(239,68,68,0.4); color: #ef4444; }
+        .nft-play-tag-del:hover { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #ef4444; }
         /* Tag chips in the list view, and the per-NFT tag menu they open. */
         .nft-tag-cell { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; cursor: pointer; min-height: 20px; max-width: 190px; }
         .nft-tag-chip { display: inline-block; font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; white-space: nowrap; line-height: 1.5; }
@@ -1277,6 +1279,13 @@
                     <div id="nftEmpty" style="text-align:center; padding:24px; color:#555;">
                         <div style="font-size:2rem; margin-bottom:6px;">🖼️</div>
                         <div style="font-size:0.8rem;">No NFTs yet — add your favorites!</div>
+                    </div>
+                    <!-- A tag that admits nothing: say so plainly instead of showing the whole
+                         gallery, which would make the tag look like it did nothing. -->
+                    <div id="nftTagEmpty" style="display:none;text-align:center; padding:24px; color:#555;">
+                        <div style="font-size:2rem; margin-bottom:6px;">🏷️</div>
+                        <div style="font-size:0.8rem;">Nothing tagged <strong id="nftTagEmptyName" style="color:#8a8a99"></strong> yet</div>
+                        <div style="font-size:0.7rem;margin-top:6px;color:#556">Right-click any NFT to tag it, or pick <strong>All</strong> above</div>
                     </div>
                 </div>
             </div>
@@ -2405,14 +2414,16 @@ SOL,100</pre></div>
 
     // Indices into nftGallery that the filter admits. Order is gallery order, so a filtered
     // slideshow still runs in the sequence the sort buttons set up.
+    // Returns exactly what the tag admits, which may be nothing. It deliberately does NOT
+    // clear the selection when it comes up empty: this is read during rendering, and an
+    // earlier version that "self-healed" here silently deselected any tag with no NFTs the
+    // instant it was picked — including a tag just created — so the tag could never be seen
+    // as selected, and anything keyed on the selection (the list filter, the delete button)
+    // was unreachable. Callers handle an empty set instead.
     function playableNftIndices() {
         if (!nftPlayTag) return nftGallery.map((_, i) => i);
         const out = [];
         nftGallery.forEach((u, i) => { if (nftHasTag(u, nftPlayTag)) out.push(i); });
-        // Self-heal: deleting the last NFT carrying a tag would otherwise leave the viewer
-        // stuck on an empty set with no obvious way out. Cleared inline rather than through
-        // setNftPlayTag, because this runs during rendering and the setter re-renders.
-        if (!out.length) { nftPlayTag = ''; saveNftPlayTag(); syncNftPlayTagUI(); return nftGallery.map((_, i) => i); }
         return out;
     }
     function playableNftCount() { return playableNftIndices().length; }
@@ -2500,6 +2511,35 @@ SOL,100</pre></div>
 
         chip('', 'All', nftGallery.length, '#00d4ff', !nftPlayTag);
         tags.forEach(t => chip(t.name, nftTagShortLabel(t.name), t.count, t.color, nftPlayTag === t.name));
+
+        // Deleting a tag belongs next to selecting one. Anywhere else and a tag applied to
+        // nothing — which is exactly the tag you most want to get rid of — is hard to reach,
+        // because it shows no rows and appears on no NFT's menu.
+        if (nftTagDefs[nftPlayTag]) {
+            const del = document.createElement('button');
+            del.className = 'nft-play-tag nft-play-tag-del';
+            del.innerHTML = '🗑 Delete tag';
+            del.title = 'Delete the "' + nftTagLabel(nftPlayTag) + '" tag. The NFTs themselves are kept.';
+            del.addEventListener('click', () => deleteNftTagByName(nftPlayTag));
+            bar.appendChild(del);
+        }
+    }
+
+    // One place every "delete this tag" path goes through, so the confirm text and the
+    // clean-up can't drift apart between the picker, the list footer and a row's tag menu.
+    function deleteNftTagByName(tag) {
+        if (!tag || !nftTagDefs[tag]) return;
+        const label = nftTagLabel(tag);
+        const n = nftGallery.filter(u => nftCustomTagsOf(u).indexOf(tag) !== -1).length;
+        if (!confirm('Delete the "' + label + '" tag?\n\n' +
+            (n > 0 ? 'It comes off ' + n + ' NFT' + (n !== 1 ? 's' : '') + '. ' : 'Nothing is tagged with it. ') +
+            'The NFTs themselves are not deleted.')) return;
+        if (nftPlayTag === tag) setNftPlayTag('');   // never leave the gallery scoped to a tag that is gone
+        deleteNftTagEverywhere(tag);
+        syncNftPlayTagUI();
+        updateNFTDisplay();
+        renderReorderTable();
+        toast('Deleted the "' + label + '" tag', 'success');
     }
 
 
@@ -8098,8 +8138,28 @@ SOL,100</pre></div>
         syncNftPlayTagUI();
         const viewer = document.getElementById('nftViewer');
         const empty = document.getElementById('nftEmpty');
-        if (nftGallery.length === 0) { viewer.style.display = 'none'; empty.style.display = 'block'; return; }
-        viewer.style.display = 'block'; empty.style.display = 'none';
+        const tagEmpty = document.getElementById('nftTagEmpty');
+        if (nftGallery.length === 0) {
+            viewer.style.display = 'none'; empty.style.display = 'block';
+            if (tagEmpty) tagEmpty.style.display = 'none';
+            return;
+        }
+        empty.style.display = 'none';
+        // A tag with nothing in it is a real state, not an error — the tag stays selected so
+        // it can still be renamed away from, cleared, or deleted.
+        const playable = playableNftIndices();
+        if (!playable.length) {
+            viewer.style.display = 'none';
+            if (tagEmpty) {
+                tagEmpty.style.display = 'block';
+                document.getElementById('nftTagEmptyName').textContent = nftTagLabel(nftPlayTag);
+            }
+            return;
+        }
+        if (tagEmpty) tagEmpty.style.display = 'none';
+        viewer.style.display = 'block';
+        // The filter may have been applied while sitting on an NFT it excludes.
+        if (playable.indexOf(nftIdx) === -1) nftIdx = playable[0];
         bindGalleryNftImage(document.getElementById('nftImg'), nftIdx);
         document.getElementById('nftCounter').textContent = playablePositionOf(nftIdx) + ' / ' + playableNftCount();
         updateIndividualNftValueOverlay(nftIdx, 'nftValueOverlay');
@@ -8872,19 +8932,7 @@ SOL,100</pre></div>
 
     // Deletes the tag currently selected in the tag dropdown. Only ever a custom tag: chain
     // tags are derived and have no definition to remove.
-    function deleteFilteredNftTag() {
-        const tag = nftTableTagFilter();
-        if (!tag || !nftTagDefs[tag]) return;
-        const label = nftTagLabel(tag);
-        const n = nftGallery.filter(u => nftCustomTagsOf(u).indexOf(tag) !== -1).length;
-        if (!confirm('Delete the "' + label + '" tag?\n\n' +
-            (n > 0 ? 'It comes off ' + n + ' NFT' + (n !== 1 ? 's' : '') + '. ' : 'Nothing is tagged with it. ') +
-            'The NFTs themselves are not deleted.')) return;
-        setNftPlayTag('');            // the gallery must not stay scoped to a tag that is gone
-        deleteNftTagEverywhere(tag);
-        renderReorderTable();
-        toast('Deleted the "' + label + '" tag', 'success');
-    }
+    function deleteFilteredNftTag() { deleteNftTagByName(nftTableTagFilter()); }
 
     function deleteFilteredCollection() {
         const sel = document.getElementById('nftTableFilter');
@@ -9236,8 +9284,7 @@ SOL,100</pre></div>
                 drop.title = 'Delete the "' + t.label + '" tag everywhere';
                 drop.addEventListener('click', e => {
                     e.stopPropagation();
-                    if (!confirm('Delete the "' + t.label + '" tag?\n\nIt will be removed from ' + t.count + ' NFT' + (t.count !== 1 ? 's' : '') + '. The NFTs themselves are not touched.')) return;
-                    deleteNftTagEverywhere(t.name);
+                    deleteNftTagByName(t.name);
                     renderNftTagMenu();
                     if (nftTagMenuOnChange) nftTagMenuOnChange();
                 });
