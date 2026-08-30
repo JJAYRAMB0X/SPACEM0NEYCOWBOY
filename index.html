@@ -10303,6 +10303,10 @@ SOL,100</pre></div>
         const idx = nftGallery.indexOf(url);
         if (idx === -1) return { ok: false, reason: 'gone from the gallery' };
         const n = applyValueToCollection(idx, usd);
+        // Every surface that shows an NFT value at once — the card, the fullscreen viewer, the
+        // screensaver overlay and the list. It also refuses to redraw the list while a value is
+        // part-way through being typed, which a bare renderReorderTable() would trample.
+        refreshNftValueDisplays();
         if (!quiet) {
             toast('Floor updated: ' + collection + ' → ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
                   ' across ' + n + ' NFT' + (n !== 1 ? 's' : ''), 'success');
@@ -10315,7 +10319,7 @@ SOL,100</pre></div>
     // so tracking 40 pieces of one collection costs one request, not forty.
     let nftFloorAuto = {};                    // collectionKey -> { minutes, chain, contract, collection }
     const nftFloorAutoTimers = new Map();     // collectionKey -> interval id
-    let nftFloorAutoPausedForScreensaver = false;
+    let nftFloorAutoPausedForShare = false;
 
     function saveNftFloorAuto() {
         try { localStorage.setItem(lsKey('nftFloorAuto'), JSON.stringify(nftFloorAuto)); } catch (e) {}
@@ -10343,8 +10347,9 @@ SOL,100</pre></div>
         if (!url) { stopNftFloorAuto(ck); delete nftFloorAuto[ck]; saveNftFloorAuto(); return; }
         const res = await refreshFloorForNft(url, { quiet: true });
         if (res.ok) {
+            // Displays are already refreshed by refreshFloorForNft, including the screensaver
+            // overlay — so an auto-recheck landing mid-screensaver shows up straight away.
             console.log('[NFT-Floor] auto: ' + cfg.collection + ' → $' + res.usd.toFixed(2) + ' on ' + res.count + ' NFTs');
-            if (document.getElementById('nftReorderOverlay').classList.contains('active')) renderReorderTable();
         } else {
             console.warn('[NFT-Floor] auto failed for ' + cfg.collection + ': ' + res.reason);
         }
@@ -10353,7 +10358,7 @@ SOL,100</pre></div>
     function startNftFloorAuto(ck) {
         stopNftFloorAuto(ck);
         const cfg = nftFloorAuto[ck];
-        if (!cfg || nftFloorAutoPausedForScreensaver) return;
+        if (!cfg || nftFloorAutoPausedForShare) return;
         const minutes = Math.max(NFT_FLOOR_AUTO_MIN_MINUTES, Number(cfg.minutes) || NFT_FLOOR_AUTO_DEFAULT_MINUTES);
         nftFloorAutoTimers.set(ck, setInterval(() => runNftFloorAutoTick(ck), minutes * 60 * 1000));
     }
@@ -10362,13 +10367,13 @@ SOL,100</pre></div>
         if (id) { clearInterval(id); nftFloorAutoTimers.delete(ck); }
     }
     function restoreNftFloorAutoTimers() { Object.keys(nftFloorAuto).forEach(startNftFloorAuto); }
-    function pauseNftFloorAutoForScreensaver() {
-        nftFloorAutoPausedForScreensaver = true;
+    function pauseNftFloorAutoForShareMode() {
+        nftFloorAutoPausedForShare = true;
         nftFloorAutoTimers.forEach(id => clearInterval(id));
         nftFloorAutoTimers.clear();
     }
-    function resumeNftFloorAutoAfterScreensaver() {
-        nftFloorAutoPausedForScreensaver = false;
+    function resumeNftFloorAutoAfterShareMode() {
+        nftFloorAutoPausedForShare = false;
         restoreNftFloorAutoTimers();
     }
 
@@ -10395,9 +10400,7 @@ SOL,100</pre></div>
         saveNftFloorAuto();
         startNftFloorAuto(ck);
         toast('Auto floor ON for ' + nftCollectionOf(url) + ' — every ' + mins + ' min', 'success');
-        refreshFloorForNft(url, { quiet: true }).then(res => {
-            if (res.ok && document.getElementById('nftReorderOverlay').classList.contains('active')) renderReorderTable();
-        });
+        refreshFloorForNft(url, { quiet: true });   // refreshes every display itself
         return true;
     }
 
@@ -10431,13 +10434,12 @@ SOL,100</pre></div>
         for (const r of targets) {
             if (btn) btn.textContent = '↻ Pricing ' + (++done) + '/' + targets.length + '…';
             const res = await refreshFloorForNft(r.url, { quiet: true });
-            if (res.ok) updated++; else missed++;
-            renderReorderTable();
+            if (res.ok) updated++; else missed++;   // it redraws the list itself, edit-safely
             if (done < targets.length) await delay(1200);
         }
         nftBulkFloorRunning = false;
         if (btn) btn.textContent = '↻ Recheck floors';   // the label was used as the progress readout
-        renderReorderTable();
+        refreshNftValueDisplays();   // edit-safe redraw, same as every other floor write
         toast('Refreshed ' + updated + ' of ' + targets.length + ' collection' + (targets.length !== 1 ? 's' : '') +
               (missed > 0 ? ' · ' + missed + ' had no floor to find' : ''), updated > 0 ? 'success' : 'info');
     }
@@ -11265,13 +11267,19 @@ SOL,100</pre></div>
         }
     }
 
-    // Snapshot of auto-update state before entering screensaver/share, used to restore on exit.
-    // Null means "no snapshot" (we are not currently inside a screensaver/share session).
-    let preScreensaverAutoState = null;
+    // SHARE MODE ONLY — despite what these used to be called. Suspending updates for the
+    // screensaver was undone in d0e1f3d, which fixed the real cause (renderNetwork tearing the
+    // constellation down on every tick) so prices could stay live there. Share mode still
+    // freezes everything, because it is presenting a fixed snapshot to be screenshotted.
+    // The restore runs from exitScreensaver, since share mode lives inside the screensaver.
+    //
+    // Snapshot of auto-update state before entering share mode, used to restore on exit.
+    // Null means "no snapshot" (we are not currently in a share-mode session).
+    let preShareModeAutoState = null;
 
-    function suspendAutoUpdatesForScreensaver() {
-        if (preScreensaverAutoState) return; // already suspended
-        preScreensaverAutoState = {
+    function suspendAutoUpdatesForShareMode() {
+        if (preShareModeAutoState) return; // already suspended
+        preShareModeAutoState = {
             autoUpdateEnabled: autoUpdateEnabled,
             customAutoUpdatePaused: customAutoUpdatePaused,
         };
@@ -11287,15 +11295,15 @@ SOL,100</pre></div>
             pauseAllTokenAutoUpdates();
             syncCustomAutoUpdateBtn();
         }
-        // NFT floor timers too: they re-render the list and would fight the screensaver the
-        // same way a stray renderNetwork did.
-        pauseNftFloorAutoForScreensaver();
+        // NFT floor timers too — a share-mode snapshot shouldn't have prices moving in it.
+        // They keep running during an ordinary screensaver, which is the point of them.
+        pauseNftFloorAutoForShareMode();
     }
 
-    function restoreAutoUpdatesAfterScreensaver() {
-        if (!preScreensaverAutoState) return;
-        const prev = preScreensaverAutoState;
-        preScreensaverAutoState = null;
+    function restoreAutoUpdatesAfterShareMode() {
+        if (!preShareModeAutoState) return;
+        const prev = preShareModeAutoState;
+        preShareModeAutoState = null;
         // Restore portfolio-wide auto-update
         if (prev.autoUpdateEnabled && !autoUpdateEnabled) {
             autoUpdateEnabled = true;
@@ -11308,7 +11316,7 @@ SOL,100</pre></div>
             syncCustomAutoUpdateBtn();
             resumeAllTokenAutoUpdates();
         }
-        resumeNftFloorAutoAfterScreensaver();
+        resumeNftFloorAutoAfterShareMode();
     }
 
     function enterScreensaver() {
@@ -11339,7 +11347,7 @@ SOL,100</pre></div>
         screensaverActive = false;
         document.body.style.overflow = '';
         if (shareModeActive) exitShareMode();
-        restoreAutoUpdatesAfterScreensaver();
+        restoreAutoUpdatesAfterShareMode();
         if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = null; }
         if (ssEscHintTimer) { clearTimeout(ssEscHintTimer); ssEscHintTimer = null; }
         stopWinterPlanet();
@@ -11769,7 +11777,7 @@ SOL,100</pre></div>
 
         // Enter screensaver (reuses existing system)
         if (screensaverActive) return;
-        suspendAutoUpdatesForScreensaver();
+        suspendAutoUpdatesForShareMode();
         screensaverActive = true;
         document.body.style.overflow = 'hidden';
 
