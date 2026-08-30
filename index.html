@@ -650,6 +650,15 @@
             border: 1px solid rgba(255,255,255,0.15);
         }
 
+        .nft-secs-wrap { display: inline-flex; align-items: center; gap: 3px; font-size: 0.72rem; color: #777; }
+        .nft-secs-input {
+            width: 46px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 8px; padding: 4px 5px; color: #e2e8f0; font-size: 0.72rem;
+            font-family: inherit; text-align: center;
+        }
+        .nft-secs-input:focus { outline: none; border-color: rgba(0,212,255,0.55); }
+        .nft-btn.active { background: rgba(0,212,255,0.22); border-color: rgba(0,212,255,0.6); color: #00d4ff; }
+
         /* ===== NFT REORDER ===== */
         .reorder-grid {
             display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -1207,6 +1216,8 @@
                             <button class="nft-btn" onclick="prevNFT()">◀</button>
                             <button class="nft-btn" id="slideshowBtn" onclick="toggleSlideshow()">▶️ Play</button>
                             <button class="nft-btn" onclick="nextNFT()">▶</button>
+                            <button class="nft-btn" id="nftShuffleBtn" onclick="toggleNftShuffle()" title="Shuffle">🔀</button>
+                            <span class="nft-secs-wrap"><input type="number" id="nftSlideSecsInput" class="nft-secs-input" min="1" max="3600" step="1" value="3" title="Seconds between NFTs" onchange="setNftSlideshowSecs(this.value)" onkeydown="event.stopPropagation(); if(event.key==='Enter'){this.blur();}"><span>s</span></span>
                             <button class="nft-btn danger" onclick="deleteNFT()">🗑️</button>
                         </div>
                         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
@@ -1997,6 +2008,8 @@ SOL,100</pre></div>
             <div class="nft-fs-value-overlay" id="overlayNftValueOverlay" onclick="startEditIndividualNftValue(overlayNftIdx, 'overlayNftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
             <div class="nft-fs-bottom">
                 <button class="nft-btn" id="overlaySlideshowBtn" onclick="toggleOverlaySlideshow()" style="background:rgba(0,0,0,0.5); border-color:rgba(255,255,255,0.3);">▶️ Play</button>
+                <button class="nft-btn" id="overlayShuffleBtn" onclick="toggleNftShuffle()" title="Shuffle" style="background:rgba(0,0,0,0.5); border-color:rgba(255,255,255,0.3);">🔀</button>
+                <span class="nft-secs-wrap"><input type="number" id="overlaySlideSecsInput" class="nft-secs-input" min="1" max="3600" step="1" value="3" title="Seconds between NFTs" onchange="setNftSlideshowSecs(this.value)" onkeydown="event.stopPropagation(); if(event.key==='Enter'){this.blur();}"><span>s</span></span>
                 <div id="overlayNFTCounter" style="color:rgba(255,255,255,0.7); font-size:1rem;">1 / 1</div>
             </div>
         </div>
@@ -2073,6 +2086,46 @@ SOL,100</pre></div>
     let nftValues = {}; // per-NFT values: { url: valueInUSD }
     let nftMeta = {}; // on-chain identity for scanned NFTs: { url: { chain, contract, tokenId, standard, collection } }
     let slideshowTimer = null;
+
+    // --- slideshow preferences (shared by the panel, fullscreen and screensaver) ---
+    let nftSlideshowShuffle = false;
+    let nftSlideshowSecs = 3;
+    const NFT_SLIDESHOW_MIN = 1, NFT_SLIDESHOW_MAX = 3600;
+
+    function loadNftSlideshowPrefs() {
+        try {
+            nftSlideshowShuffle = localStorage.getItem(lsKey('nftShuffle')) === '1';
+            const v = parseFloat(localStorage.getItem(lsKey('nftSlideSecs')));
+            if (v >= NFT_SLIDESHOW_MIN && v <= NFT_SLIDESHOW_MAX) nftSlideshowSecs = v;
+        } catch (e) {}
+    }
+    function saveNftSlideshowPrefs() {
+        try {
+            localStorage.setItem(lsKey('nftShuffle'), nftSlideshowShuffle ? '1' : '0');
+            localStorage.setItem(lsKey('nftSlideSecs'), String(nftSlideshowSecs));
+        } catch (e) {}
+    }
+    function nftSlideshowMs() { return Math.round(nftSlideshowSecs * 1000); }
+
+    // A shuffle bag rather than plain random: every NFT is shown once before any repeats,
+    // and the next pick is never the one already on screen.
+    let nftShuffleBag = [], nftShuffleBagFor = -1;
+    function nextShuffledIdx(current, len) {
+        if (len <= 1) return 0;
+        if (nftShuffleBagFor !== len || nftShuffleBag.length === 0) {
+            nftShuffleBag = Array.from({ length: len }, (_, i) => i);
+            for (let i = len - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const t = nftShuffleBag[i]; nftShuffleBag[i] = nftShuffleBag[j]; nftShuffleBag[j] = t;
+            }
+            nftShuffleBagFor = len;
+            const last = nftShuffleBag.length - 1;
+            if (nftShuffleBag[last] === current && len > 1) {
+                const t = nftShuffleBag[last]; nftShuffleBag[last] = nftShuffleBag[0]; nftShuffleBag[0] = t;
+            }
+        }
+        return nftShuffleBag.pop();
+    }
     let overlaySlideshowTimer = null;
     let overlayNftIdx = 0;
     let allNews = [];
@@ -2308,6 +2361,8 @@ SOL,100</pre></div>
         loadNftScanChains();
         loadNftScanWalletSel();
         loadNftCollSort();
+        loadNftSlideshowPrefs();
+        syncNftSlideshowControls();
         loadNFTs();
         loadWallets();
         fetchCADRate();
@@ -7492,14 +7547,58 @@ SOL,100</pre></div>
     function nextNFT() { if (!nftGallery.length) return; nftIdx = (nftIdx + 1) % nftGallery.length; updateNFTDisplay(); }
     function prevNFT() { if (!nftGallery.length) return; nftIdx = (nftIdx - 1 + nftGallery.length) % nftGallery.length; updateNFTDisplay(); }
     function deleteNFT() { if (!nftGallery.length || !confirm('Remove this NFT?')) return; if (slideshowTimer) toggleSlideshow(); const delUrl = nftGallery[nftIdx]; nftGallery.splice(nftIdx, 1); if (nftValues[delUrl]) { delete nftValues[delUrl]; saveNftValues(); } if (nftMeta[delUrl]) { delete nftMeta[delUrl]; saveNftMeta(); } if (nftIdx >= nftGallery.length) nftIdx = Math.max(0, nftGallery.length - 1); saveNFTs(); recalcNftTotal(); updateNFTDisplay(); }
+    // Both control bars share one setting, so changing it in either place updates the other
+    // and restarts whichever slideshow is currently running.
+    function syncNftSlideshowControls() {
+        ['nftShuffleBtn', 'overlayShuffleBtn'].forEach(id => {
+            const b = document.getElementById(id);
+            if (!b) return;
+            b.classList.toggle('active', nftSlideshowShuffle);
+            b.title = nftSlideshowShuffle ? 'Shuffle on — random order, no repeats until every NFT has shown' : 'Shuffle off — plays in gallery order';
+        });
+        ['nftSlideSecsInput', 'overlaySlideSecsInput'].forEach(id => {
+            const i = document.getElementById(id);
+            if (i && document.activeElement !== i) i.value = nftSlideshowSecs;
+        });
+    }
+
+    function restartRunningSlideshows() {
+        if (slideshowTimer) { clearInterval(slideshowTimer); slideshowTimer = setInterval(advanceSlideshowMain, nftSlideshowMs()); }
+        if (overlaySlideshowTimer) { clearInterval(overlaySlideshowTimer); overlaySlideshowTimer = setInterval(advanceSlideshowOverlay, nftSlideshowMs()); }
+        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs()); }
+    }
+
+    function toggleNftShuffle() {
+        nftSlideshowShuffle = !nftSlideshowShuffle;
+        nftShuffleBag = []; nftShuffleBagFor = -1;   // start a fresh pass
+        saveNftSlideshowPrefs();
+        syncNftSlideshowControls();
+        toast(nftSlideshowShuffle ? 'Shuffle on' : 'Shuffle off', 'info');
+    }
+
+    function setNftSlideshowSecs(raw) {
+        const v = parseFloat(raw);
+        if (!(v >= NFT_SLIDESHOW_MIN && v <= NFT_SLIDESHOW_MAX)) { syncNftSlideshowControls(); return; }
+        nftSlideshowSecs = v;
+        saveNftSlideshowPrefs();
+        syncNftSlideshowControls();
+        restartRunningSlideshows();   // take effect now, not after the current wait
+    }
+
+    function advanceSlideshowMain() {
+        if (!nftGallery.length) return;
+        if (nftSlideshowShuffle) { nftIdx = nextShuffledIdx(nftIdx, nftGallery.length); updateNFTDisplay(); }
+        else nextNFT();
+    }
+
     function toggleSlideshow() {
         const btn = document.getElementById('slideshowBtn');
         if (slideshowTimer) { clearInterval(slideshowTimer); slideshowTimer = null; btn.textContent = '▶️ Play'; }
-        else { slideshowTimer = setInterval(nextNFT, 3000); btn.textContent = '⏸️ Pause'; }
+        else { slideshowTimer = setInterval(advanceSlideshowMain, nftSlideshowMs()); btn.textContent = '⏸️ Pause'; }
     }
 
     // NFT overlay controls
-    function expandNFT() { if (!nftGallery.length) { alert('No NFTs yet!'); return; } overlayNftIdx = nftIdx; updateOverlayNFT(); document.getElementById('nftOverlay').classList.add('active'); }
+    function expandNFT() { if (!nftGallery.length) { alert('No NFTs yet!'); return; } overlayNftIdx = nftIdx; updateOverlayNFT(); syncNftSlideshowControls(); document.getElementById('nftOverlay').classList.add('active'); }
     function updateOverlayNFT() { bindGalleryNftImage(document.getElementById('overlayNFTImg'), overlayNftIdx); document.getElementById('overlayNFTCounter').textContent = (overlayNftIdx+1) + ' / ' + nftGallery.length; updateIndividualNftValueOverlay(overlayNftIdx, 'overlayNftValueOverlay'); }
 
     // Scanned NFTs carry a candidate list; manually added ones are just their own URL.
@@ -7517,10 +7616,16 @@ SOL,100</pre></div>
     }
     function nextNFTOverlay() { overlayNftIdx = (overlayNftIdx + 1) % nftGallery.length; updateOverlayNFT(); }
     function prevNFTOverlay() { overlayNftIdx = (overlayNftIdx - 1 + nftGallery.length) % nftGallery.length; updateOverlayNFT(); }
+    function advanceSlideshowOverlay() {
+        if (!nftGallery.length) return;
+        if (nftSlideshowShuffle) { overlayNftIdx = nextShuffledIdx(overlayNftIdx, nftGallery.length); updateOverlayNFT(); }
+        else nextNFTOverlay();
+    }
+
     function toggleOverlaySlideshow() {
         const btn = document.getElementById('overlaySlideshowBtn');
         if (overlaySlideshowTimer) { clearInterval(overlaySlideshowTimer); overlaySlideshowTimer = null; btn.textContent = '▶️ Play'; }
-        else { overlaySlideshowTimer = setInterval(nextNFTOverlay, 3000); btn.textContent = '⏸️ Pause'; }
+        else { overlaySlideshowTimer = setInterval(advanceSlideshowOverlay, nftSlideshowMs()); btn.textContent = '⏸️ Pause'; }
     }
 
     // NFT reorder
@@ -9942,7 +10047,7 @@ SOL,100</pre></div>
         ssNftActiveImg = 1;
         updateIndividualNftValueOverlay(screensaverNftIdx, 'ssNftValueOverlay');
         // Default to slideshow active
-        screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000);
+        screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs());
         const ssBtn = document.getElementById('ssSlideshowBtn');
         if (ssBtn) ssBtn.textContent = '⏸️ Pause';
     }
@@ -9964,7 +10069,9 @@ SOL,100</pre></div>
 
     function advanceScreensaverNFT() {
         if (nftGallery.length <= 1) return;
-        screensaverNftIdx = (screensaverNftIdx + 1) % nftGallery.length;
+        screensaverNftIdx = nftSlideshowShuffle
+            ? nextShuffledIdx(screensaverNftIdx, nftGallery.length)
+            : (screensaverNftIdx + 1) % nftGallery.length;
         showSsNftImage(screensaverNftIdx);
     }
 
@@ -9972,14 +10079,14 @@ SOL,100</pre></div>
         if (nftGallery.length <= 1) return;
         screensaverNftIdx = (screensaverNftIdx - 1 + nftGallery.length) % nftGallery.length;
         showSsNftImage(screensaverNftIdx);
-        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000); }
+        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs()); }
     }
 
     function ssNftNext() {
         if (nftGallery.length <= 1) return;
         screensaverNftIdx = (screensaverNftIdx + 1) % nftGallery.length;
         showSsNftImage(screensaverNftIdx);
-        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000); }
+        if (screensaverNftTimer) { clearInterval(screensaverNftTimer); screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs()); }
     }
 
     function toggleSsSlideshow() {
@@ -9988,7 +10095,7 @@ SOL,100</pre></div>
             clearInterval(screensaverNftTimer); screensaverNftTimer = null;
             btn.textContent = '▶️ Play';
         } else {
-            screensaverNftTimer = setInterval(advanceScreensaverNFT, 5000);
+            screensaverNftTimer = setInterval(advanceScreensaverNFT, nftSlideshowMs());
             btn.textContent = '⏸️ Pause';
         }
     }
