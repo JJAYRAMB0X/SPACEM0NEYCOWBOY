@@ -6412,6 +6412,13 @@ SOL,100</pre></div>
     }
 
     function renderNetwork(targetEl) {
+        // While the screensaver is up the visible constellation lives in its own container.
+        // Defaulting to the main one would stop the shared orbit loop (below) and then
+        // rebuild off-screen, freezing the screensaver for good — which is what a price tick
+        // used to do. Redirect instead of letting any caller cause that.
+        if (!targetEl && screensaverActive) {
+            targetEl = document.getElementById('ssNetworkContainer') || null;
+        }
         stopOrbitAnimation();
         sunNodeEl = null;
         isDraggingSun = false;
