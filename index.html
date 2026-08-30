@@ -2228,9 +2228,6 @@ SOL,100</pre></div>
     function loadNftValue() {
         const v = parseFloat(localStorage.getItem(lsKey('nftValue')));
         if (v > 0) nftEstValue = v;
-        // The manual-total override is gone. Drop any stale flag so an old save can't
-        // strand the total at a number that no longer matches the per-NFT values.
-        try { localStorage.removeItem(lsKey('nftValueOverride')); } catch (e) {}
     }
     function saveNftValues() { localStorage.setItem(lsKey('nftValues'), JSON.stringify(nftValues)); }
     function loadNftValues() { try { const d = JSON.parse(localStorage.getItem(lsKey('nftValues'))); if (d && typeof d === 'object') nftValues = d; } catch(e) {} }
@@ -5710,15 +5707,16 @@ SOL,100</pre></div>
         });
 
         // NFTs bubble (non-clickable, info only)
-        if (nftEstValue > 0) {
-            const nftPct = grandTotal > 0 ? (nftEstValue / grandTotal * 100).toFixed(1) : 0;
+        const nftTotal = sumNftValues();   // always live; nftEstValue is only a cache for export
+        if (nftTotal > 0) {
+            const nftPct = grandTotal > 0 ? (nftTotal / grandTotal * 100).toFixed(1) : 0;
             const nb = document.createElement('div');
             nb.className = 'stat-bubble';
             nb.style.setProperty('--cat-color', '#f59e0b');
             nb.style.setProperty('--cat-glow', '#f59e0b44');
             nb.style.cursor = 'default'; nb.style.opacity = '0.85';
             nb.innerHTML = '<div class="stat-label">🖼️ NFTs</div><div class="stat-value" style="color:#f59e0b">' + nftPct + '%</div>';
-            nb.title = 'Estimated NFT value: ' + formatUSD(nftEstValue);
+            nb.title = 'Estimated NFT value: ' + formatUSD(nftTotal);
             container.appendChild(nb);
         }
         section.style.display = 'block'; ft.classList.add('visible'); sc.classList.add('visible');
@@ -7178,7 +7176,6 @@ SOL,100</pre></div>
                 const trimmed = l.trim();
                 const valMatch = trimmed.match(/^### NFT_EST_VALUE=([\d.]+) ###$/);
                 if (valMatch) { nftEstValue = parseFloat(valMatch[1]) || 0; saveNftValue(); }
-                else if (trimmed === '### NFT_VALUE_OVERRIDE ###') { /* legacy marker; totals are always auto-summed now */ }
                 else {
                     // Parse "url",value or "url"
                     const parts = trimmed.split(/",/);
