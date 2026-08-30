@@ -608,6 +608,9 @@
         .nft-table-art { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #99a; border-radius: 6px; padding: 2px 6px; font-size: 0.68rem; cursor: pointer; font-family: inherit; white-space: nowrap; }
         .nft-table-art:hover { border-color: rgba(0,212,255,0.5); color: #00d4ff; }
         .nft-table-art.set { color: #f59e0b; border-color: rgba(245,158,11,0.45); }
+        .nft-table-art.auto-on { color: #10b981; border-color: rgba(16,185,129,0.45); }
+        .nft-table-art:disabled { cursor: default; }
+        .nft-table-art:disabled:hover { border-color: rgba(255,255,255,0.15); color: #99a; }
         .nft-table-del { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 6px; padding: 2px 7px; font-size: 0.7rem; cursor: pointer; font-family: inherit; line-height: 1.2; }
         .nft-table-del:hover { background: #ef4444; color: #fff; }
         /* Tag picker above the gallery card. Wraps rather than scrolls, so no tag is hidden
@@ -2066,7 +2069,7 @@ SOL,100</pre></div>
                 <button class="nft-scan-view-btn" id="nftTableTagBtn" style="padding:4px 10px;font-size:0.66rem" onclick="openBulkTagMenu(this)" title="Apply or remove a tag across every ticked row at once">🏷 Tag selected</button>
                 <button class="nft-table-danger" id="nftTableDeleteBtn" onclick="deleteSelectedTableRows()">Delete selected</button>
             </div>
-            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · Right-click a row to recheck its floor, auto-recheck it, or tag it · Column headers sort this list only; “Gallery order” above rewrites the saved order used by the slideshow and collage</div>
+            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · ⏱ sets an auto floor recheck for the whole collection · Right-click a row to recheck its floor now, or tag it · Column headers sort this list only; “Gallery order” above rewrites the saved order used by the slideshow and collage</div>
             <div class="reorder-grid" id="reorderGrid"></div>
             <div class="nft-table-wrap" id="reorderTableWrap" style="display:none"><table class="nft-table" id="reorderTable"></table></div>
             <div class="nft-table-foot" id="reorderTableFoot" style="display:none"></div>
@@ -8974,6 +8977,7 @@ SOL,100</pre></div>
               '<th class="nosort">Wallet</th>' +
               th('value', 'Value', ' style="text-align:right"') +
               '<th class="nosort" style="width:56px"></th>' +
+              '<th class="nosort" style="width:58px" title="Auto-recheck the floor price of this NFT\'s collection on a timer">Auto</th>' +
               '<th class="nosort" style="width:46px"></th>' +
               '<th class="nosort" style="width:34px"></th>' +
             '</tr></thead><tbody></tbody>';
@@ -9054,18 +9058,10 @@ SOL,100</pre></div>
 
             const cVal = document.createElement('td');
             cVal.className = 'nft-table-val' + (r.value > 0 ? '' : ' none');
-            const autoCfg = nftFloorAutoFor(r.url);
             cVal.textContent = r.value > 0 ? curSym() + Math.round(toCur(r.value)).toLocaleString() : 'not priced';
-            if (autoCfg) {
-                // A row whose price will change on its own should say so, or the next edit
-                // looks like it was silently reverted.
-                const badge = document.createElement('span');
-                badge.textContent = ' ⏱';
-                badge.style.cssText = 'color:#10b981;font-size:0.65rem';
-                badge.title = 'Floor auto-rechecked every ' + autoCfg.minutes + ' min';
-                cVal.appendChild(badge);
-            }
-            cVal.title = 'Click to edit · right-click the row to recheck the floor';
+            // The Auto column next door already flags a row whose price changes on its own,
+            // so a second clock here was just noise.
+            cVal.title = 'Click to edit · right-click the row to recheck the floor now';
             cVal.addEventListener('click', () => startEditTableValue(r.idx));
 
             const cAct = document.createElement('td');
@@ -9085,6 +9081,27 @@ SOL,100</pre></div>
                 cAct.appendChild(b);
             }
 
+            // Auto floor. Per collection, not per row — the tooltip says so, because the
+            // button sitting on a row implies otherwise. Opens the floor menu rather than
+            // toggling blind, so the interval is set in the same click.
+            const cAuto = document.createElement('td');
+            if (nftMeta[r.url] && nftMeta[r.url].contract) {
+                const chain = NFT_SCAN_CHAINS[nftMeta[r.url].chain || 'ethereum'];
+                const cfg = nftFloorAutoFor(r.url);
+                const ab = document.createElement('button');
+                ab.className = 'nft-table-art' + (cfg ? ' auto-on' : '');
+                ab.textContent = cfg ? '⏱' + cfg.minutes + 'm' : '⏱';
+                ab.disabled = !(chain && chain.floorSource);
+                ab.title = !(chain && chain.floorSource)
+                    ? (chain ? chain.label : 'This chain') + ' has no floor-price feed to poll'
+                    : cfg
+                        ? 'Floor auto-rechecked every ' + cfg.minutes + ' min for all of ' + r.collection + ' — click to change or turn off'
+                        : 'Auto-recheck the floor for all of ' + r.collection;
+                if (ab.disabled) ab.style.opacity = '0.3';
+                else ab.addEventListener('click', e => { e.stopPropagation(); openNftTagMenu(r.url, ab); });
+                cAuto.appendChild(ab);
+            }
+
             const cArt = document.createElement('td');
             const art = document.createElement('button');
             const overridden = !!(nftMeta[r.url] && nftMeta[r.url].artOverride);
@@ -9102,7 +9119,7 @@ SOL,100</pre></div>
             del.addEventListener('click', e => { e.stopPropagation(); deleteOneNft(r.idx); });
             cDel.appendChild(del);
 
-            [cPick, cNum, cImg, cColl, cTok, cChain, cTags, cWallet, cVal, cAct, cArt, cDel].forEach(td => tr.appendChild(td));
+            [cPick, cNum, cImg, cColl, cTok, cChain, cTags, cWallet, cVal, cAct, cAuto, cArt, cDel].forEach(td => tr.appendChild(td));
             tbody.appendChild(tr);
         });
         updateNftTableSelectionUI();
