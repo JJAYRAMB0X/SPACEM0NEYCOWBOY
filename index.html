@@ -1603,6 +1603,7 @@
                 <div id="nftScanIntro">
                     <div style="font-size:0.78rem;color:#888;margin-bottom:10px">…or pull NFTs straight from the wallets you've saved.</div>
                     <button class="btn btn-secondary btn-full" onclick="openNftScanOptions()">🔍 Scan Wallets</button>
+                    <button class="btn btn-secondary btn-full" style="margin-top:8px" onclick="openWalletManagerFromNftScan()">🔑 Manage Wallets</button>
                 </div>
                 <div id="nftScanOptions" style="display:none">
                     <div style="font-size:0.78rem;color:#aaa;margin-bottom:10px">Scan saved wallets for on-chain NFTs</div>
@@ -1624,6 +1625,7 @@
                             <button class="nft-scan-view-btn" style="padding:2px 9px;font-size:0.65rem" onclick="setAllNftScanWallets(true)">All</button>
                             <button class="nft-scan-view-btn" style="padding:2px 9px;font-size:0.65rem" onclick="setAllNftScanWallets(false)">None</button>
                             <span id="nftScanWalletCount" style="font-size:0.65rem;color:#666;margin-left:auto"></span>
+                            <button class="nft-scan-view-btn" style="padding:2px 9px;font-size:0.65rem" onclick="openWalletManagerFromNftScan()" title="Add, rename or remove wallets">🔑 Manage</button>
                         </div>
                         <div id="nftScanWalletPicker" style="max-height:190px;overflow-y:auto;padding-right:2px"></div>
                     </div>
@@ -1769,7 +1771,7 @@ SOL,100</pre></div>
             <div id="walletListContainer" style="max-height:260px;overflow-y:auto;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px"></div>
             <div class="modal-actions" style="justify-content:space-between">
                 <button class="btn btn-primary" id="scanWalletsBtn" onclick="startWalletScan()" title="Auto-discover all tokens in your wallets (Ethereum + Solana)">🔍 Scan Wallets</button>
-                <button class="btn btn-secondary" onclick="closeModal('walletManagerModal')">Close</button>
+                <button class="btn btn-secondary" onclick="closeWalletManager()">Close</button>
             </div>
         </div>
     </div>
@@ -4296,6 +4298,24 @@ SOL,100</pre></div>
         showModal('walletManagerModal');
     }
 
+    // Sending someone off to add a wallet should not lose their place. Remember that the
+    // NFT scan panel sent them, and come straight back to it with the new wallet listed.
+    let walletManagerReturnsToNftScan = false;
+
+    function openWalletManagerFromNftScan() {
+        walletManagerReturnsToNftScan = true;
+        closeModal('addNFTModal');
+        openWalletManager();
+    }
+
+    function closeWalletManager() {
+        closeModal('walletManagerModal');
+        if (!walletManagerReturnsToNftScan) return;
+        walletManagerReturnsToNftScan = false;
+        showModal('addNFTModal');
+        openNftScanOptions();   // re-reads wallets, so anything just added is already there
+    }
+
     function isValidEvmAddress(a) { return typeof a === 'string' && /^0x[a-fA-F0-9]{40}$/.test(a); }
     function isValidSolAddress(a) { return typeof a === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a); }
 
@@ -4732,6 +4752,7 @@ SOL,100</pre></div>
         if (target.length === 0) { toast('Wallet not found', 'warning'); return; }
 
         walletScanState = { running: true, cancelled: false, findings: [], solanaSplFailed: false, scopeLabel: walletId ? target[0].label : null };
+        walletManagerReturnsToNftScan = false;  // moved on to a token scan; don't bounce back later
         closeModal('walletManagerModal');
         showModal('walletScanProgressModal');
         scanProgress(walletId ? ('Scanning ' + target[0].label + '…') : 'Scanning your wallets…', 'Starting');
