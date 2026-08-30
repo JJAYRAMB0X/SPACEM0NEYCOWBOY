@@ -2623,7 +2623,31 @@ SOL,100</pre></div>
     }
 
     function getNftValue(idx) { return nftValues[nftGallery[idx]] || 0; }
-    function setNftValue(idx, val) { nftValues[nftGallery[idx]] = val; saveNftValues(); recalcNftTotal(); }
+    // Which values the user typed, as opposed to ones a floor lookup wrote. Floor rechecks
+    // skip these, so a piece priced above its collection floor isn't flattened back to floor
+    // on the next auto tick. Both value editors funnel through setNftValue, so marking it
+    // here covers every hand-typed value and nothing else.
+    let nftValueManual = {};
+    function saveNftValueManual() {
+        try { localStorage.setItem(lsKey('nftValueManual'), JSON.stringify(nftValueManual)); } catch (e) {}
+    }
+    function loadNftValueManual() {
+        try { const d = JSON.parse(localStorage.getItem(lsKey('nftValueManual'))); if (d && typeof d === 'object') nftValueManual = d; } catch (e) {}
+    }
+    function isNftValueManual(url) { return !!nftValueManual[url]; }
+    function markNftValueManual(url, on) {
+        if (on) nftValueManual[url] = true; else delete nftValueManual[url];
+        saveNftValueManual();
+    }
+
+    function setNftValue(idx, val) {
+        const url = nftGallery[idx];
+        nftValues[url] = val;
+        // Clearing a value to 0 is "I have no opinion", not a hand-set price — leaving it
+        // marked would permanently exclude the NFT from floor updates.
+        if (val > 0) nftValueManual[url] = true; else delete nftValueManual[url];
+        saveNftValues(); saveNftValueManual(); recalcNftTotal();
+    }
     function sumNftValues() { return nftGallery.reduce((sum, url) => sum + (nftValues[url] || 0), 0); }
     // Every NFT value write funnels through here, so this is where "the number on screen is
     // stale until you navigate away and back" gets fixed once rather than at each call site.
@@ -2687,6 +2711,7 @@ SOL,100</pre></div>
         loadNftValues();
         loadNftMeta();
         loadNftTags();
+        loadNftValueManual();
         loadNftPlayTag();
         loadNftFloorAuto();
         restoreNftFloorAutoTimers();
@@ -8248,7 +8273,7 @@ SOL,100</pre></div>
             'Cancel — only this one keeps the new value.');
         if (!ok) return;
 
-        const n = applyValueToCollection(idx, val);
+        const { n } = applyValueToCollection(idx, val);
         if (elId) updateIndividualNftValueOverlay(idx, elId);
         toast('Set ' + shown + ' on ' + n + ' NFTs in ' + name, 'success');
     }
@@ -8557,24 +8582,30 @@ SOL,100</pre></div>
     }
 
     // Applies one value across every gallery NFT sharing a contract. Returns how many changed.
-    function applyValueToCollection(idx, val) {
+    // opts.fromFloor — this value came from a floor lookup, so leave hand-typed values alone.
+    // Returns { n, skipped }: n written, skipped left as the user set them.
+    function applyValueToCollection(idx, val, opts) {
+        const fromFloor = !!(opts && opts.fromFloor);
         const meta = nftMeta[nftGallery[idx]];
-        if (!meta || !meta.contract) return 0;
+        if (!meta || !meta.contract) return { n: 0, skipped: 0 };
         const ck = collectionKey(meta.chain, meta.contract);
-        let n = 0;
+        let n = 0, skipped = 0;
         nftGallery.forEach(u => {
             const m = nftMeta[u];
-            if (m && m.contract && collectionKey(m.chain, m.contract) === ck) {
-                const was = nftValues[u] || 0;
-                nftValues[u] = val;
-                // Only rows this call actually priced become sticky. Marking already-priced
-                // siblings too would pull them into an "unpriced only" view and grow it.
-                if (val > 0 && !(was > 0)) nftTableJustPriced.add(u);
-                n++;
-            }
+            if (!m || !m.contract || collectionKey(m.chain, m.contract) !== ck) return;
+            if (fromFloor && isNftValueManual(u)) { skipped++; return; }
+            const was = nftValues[u] || 0;
+            nftValues[u] = val;
+            // A floor write is not a hand-set price, so it must not mark one — otherwise the
+            // first auto tick would immunise the whole collection against every later one.
+            if (!fromFloor) { if (val > 0) nftValueManual[u] = true; else delete nftValueManual[u]; }
+            // Only rows this call actually priced become sticky. Marking already-priced
+            // siblings too would pull them into an "unpriced only" view and grow it.
+            if (val > 0 && !(was > 0)) nftTableJustPriced.add(u);
+            n++;
         });
-        if (n > 0) { saveNftValues(); recalcNftTotal(); }
-        return n;
+        if (n > 0) { saveNftValues(); saveNftValueManual(); recalcNftTotal(); }
+        return { n, skipped };
     }
 
     // Rows ticked in the list view, held as gallery URLs so deletions can't shift them.
@@ -8619,6 +8650,7 @@ SOL,100</pre></div>
         nftGallery = nftGallery.filter(u => {
             if (!doomed.has(u)) return true;
             delete nftValues[u];
+            delete nftValueManual[u];
             delete nftMeta[u];
             delete nftTagsByUrl[u];
             nftTablePicked.delete(u);
@@ -8628,7 +8660,7 @@ SOL,100</pre></div>
         const at = nftGallery.indexOf(wasShowing);
         nftIdx = at !== -1 ? at : Math.min(nftIdx, Math.max(0, nftGallery.length - 1));
         if (n > 0) {
-            saveNFTs(); saveNftValues(); saveNftMeta(); saveNftTags();
+            saveNFTs(); saveNftValues(); saveNftValueManual(); saveNftMeta(); saveNftTags();
             recalcNftTotal();
             updateNFTDisplay();
         }
@@ -9061,7 +9093,18 @@ SOL,100</pre></div>
             cVal.textContent = r.value > 0 ? curSym() + Math.round(toCur(r.value)).toLocaleString() : 'not priced';
             // The Auto column next door already flags a row whose price changes on its own,
             // so a second clock here was just noise.
-            cVal.title = 'Click to edit · right-click the row to recheck the floor now';
+            const handSet = isNftValueManual(r.url);
+            if (handSet) {
+                // Otherwise "why didn't this one update?" has no answer on screen.
+                const pen = document.createElement('span');
+                pen.textContent = ' ✎';
+                pen.style.cssText = 'color:#f59e0b;font-size:0.62rem';
+                pen.title = 'Set by hand — floor rechecks leave it alone';
+                cVal.appendChild(pen);
+            }
+            cVal.title = handSet
+                ? 'Set by hand, so floor rechecks skip it · click to edit · right-click to hand it back to the floor'
+                : 'Click to edit · right-click the row to recheck the floor now';
             cVal.addEventListener('click', () => startEditTableValue(r.idx));
 
             const cAct = document.createElement('td');
@@ -9074,7 +9117,7 @@ SOL,100</pre></div>
                     e.stopPropagation();
                     const v = nftValues[r.url] || 0;
                     if (!(v > 0)) { toast('Set this NFT\'s value first', 'warning'); return; }
-                    const n = applyValueToCollection(r.idx, v);
+                    const { n } = applyValueToCollection(r.idx, v);
                     renderReorderTable();
                     toast('Applied ' + curSym() + Math.round(toCur(v)).toLocaleString() + ' to ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' in ' + r.collection, 'success');
                 });
@@ -9390,6 +9433,24 @@ SOL,100</pre></div>
                 escapeHtml((chain ? chain.label : 'This chain')) + ' has no floor feed — set values by hand</span>';
             menu.appendChild(why);
             return;
+        }
+
+        // Without a way back, a value typed once would be excluded from floor updates forever
+        // with nothing on screen explaining why it never moves.
+        if (isNftValueManual(url)) {
+            const man = document.createElement('div');
+            man.className = 'nft-tag-row';
+            man.innerHTML = '<span class="nft-tag-check">✎</span><span>Price set by hand</span>' +
+                '<span class="nft-tag-note">use floor</span>';
+            man.title = 'Floor rechecks skip this NFT. Click to hand it back to the floor price.';
+            man.addEventListener('click', e => {
+                e.stopPropagation();
+                markNftValueManual(url, false);
+                toast(collection + ' #' + shortTokenId(meta.tokenId) + ' follows the floor again', 'info');
+                renderNftTagMenu();
+                if (nftTagMenuOnChange) nftTagMenuOnChange();
+            });
+            menu.appendChild(man);
         }
 
         const refresh = document.createElement('div');
@@ -10652,12 +10713,19 @@ SOL,100</pre></div>
         }
         const idx = nftGallery.indexOf(url);
         if (idx === -1) return { ok: false, reason: 'gone from the gallery' };
-        const n = applyValueToCollection(idx, usd);   // recalcNftTotal redraws every display
+        // fromFloor: values the user typed are left exactly as they set them.
+        const { n, skipped } = applyValueToCollection(idx, usd, { fromFloor: true });
         if (!quiet) {
-            toast('Floor updated: ' + collection + ' → ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
-                  ' across ' + n + ' NFT' + (n !== 1 ? 's' : ''), 'success');
+            if (n === 0 && skipped > 0) {
+                toast(collection + ' floor is ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
+                      ', but every NFT in it has a price you set by hand — none were changed', 'info');
+            } else {
+                toast('Floor updated: ' + collection + ' → ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
+                      ' across ' + n + ' NFT' + (n !== 1 ? 's' : '') +
+                      (skipped > 0 ? ' · ' + skipped + ' kept (set by hand)' : ''), 'success');
+            }
         }
-        return { ok: true, usd, count: n };
+        return { ok: true, usd, count: n, skipped };
     }
 
     // --- auto floor updates -------------------------------------------------
@@ -11156,6 +11224,7 @@ SOL,100</pre></div>
                     nftMeta[newUrl] = m;
                     delete nftMeta[url];
                     if (nftValues[url] != null) { nftValues[newUrl] = nftValues[url]; delete nftValues[url]; }
+                    if (nftValueManual[url]) { nftValueManual[newUrl] = true; delete nftValueManual[url]; saveNftValueManual(); }
                     // Tags are keyed by URL too, so they have to move with it or a repaired
                     // NFT silently loses everything the user tagged it with.
                     if (nftTagsByUrl[url]) { nftTagsByUrl[newUrl] = nftTagsByUrl[url]; delete nftTagsByUrl[url]; saveNftTags(); }
