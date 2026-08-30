@@ -148,6 +148,9 @@
             background: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
             display: none; align-items: center; justify-content: center; z-index: 5000;
         }
+        /* Progress and prompts must sit above .fs-overlay (z-index 10000) — otherwise an
+           action started from inside a fullscreen overlay looks like it did nothing. */
+        .modal-overlay.above-overlay { z-index: 12000; }
         .modal-overlay.active { display: flex; }
         .modal {
             background: linear-gradient(135deg, rgba(20,20,30,0.98), rgba(10,10,20,0.98));
@@ -1570,9 +1573,9 @@
                             <strong>All NFTs ever owned</strong><span>Includes ones since transferred out</span>
                         </button>
                     </div>
-                    <div style="display:flex;align-items:center;gap:8px;margin:12px 0 4px;flex-wrap:wrap">
-                        <span class="nft-scan-chip">⛓️ Ethereum</span>
-                        <span style="font-size:0.65rem;color:#666">More chains coming soon</span>
+                    <div style="margin:12px 0 4px">
+                        <div style="font-size:0.7rem;color:#888;margin-bottom:6px">Chains to scan</div>
+                        <div id="nftScanChainPicker" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
                     </div>
                     <div id="nftScanWalletInfo" class="modal-hint" style="margin-bottom:10px"></div>
                     <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 12px;margin-bottom:12px">
@@ -1871,11 +1874,14 @@ SOL,100</pre></div>
     <div class="fs-overlay" id="nftReorderOverlay">
         <div class="fs-content" style="max-width:1100px; max-height:95vh;">
             <div class="fs-header">
-                <div class="fs-title">⊞ Reorder NFTs</div>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+                    <div class="fs-title">⊞ Reorder NFTs</div>
+                    <!-- Kept on the left, well away from the destructive Close button. -->
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="exportNftCollage()" title="Save the whole gallery as one JPG">📸 Save collage</button>
+                </div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('value')" title="Collections led by your single best piece — each collection still stays together">💎 Most valuable</button>
                     <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="sortNftGallery('collection')" title="Collections ranked by what the whole holding is worth">🗂️ By collection</button>
-                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="exportNftCollage()" title="Save the whole gallery as one JPG">🖼️ Export JPG</button>
                     <button class="btn btn-danger" style="padding:6px 12px;font-size:0.75rem" onclick="closeOverlay('nftReorderOverlay')">✕ Close</button>
                 </div>
             </div>
@@ -2164,8 +2170,16 @@ SOL,100</pre></div>
     // ============================================================
     // MODAL HELPERS
     // ============================================================
-    function showModal(id) { document.getElementById(id).classList.add('active'); }
-    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    function showModal(id, aboveOverlay) {
+        const el = document.getElementById(id);
+        el.classList.toggle('above-overlay', !!aboveOverlay);
+        el.classList.add('active');
+    }
+    function closeModal(id) {
+        const el = document.getElementById(id);
+        el.classList.remove('active');
+        el.classList.remove('above-overlay');
+    }
     function dismissWelcome() { localStorage.setItem(lsKey('welcomed'), 'true'); closeModal('welcomeModal'); }
     function openInfoWelcome() {
         // Hide the "View Demo" button if already in demo mode
@@ -2192,6 +2206,7 @@ SOL,100</pre></div>
         loadNftMeta();
         loadAlchemyKey();
         loadNftSpamOverrides();
+        loadNftScanChains();
         loadNFTs();
         loadWallets();
         fetchCADRate();
@@ -7491,9 +7506,11 @@ SOL,100</pre></div>
         });
     }
 
+    // Only the first few candidates, on a short timeout: with hundreds of NFTs a long
+    // per-image retry chain turns the export into a multi-minute stall.
     async function firstCorsImage(url) {
-        for (const u of corsSafeNftCandidates(url)) {
-            const im = await loadCorsImage(u);
+        for (const u of corsSafeNftCandidates(url).slice(0, 3)) {
+            const im = await loadCorsImage(u, 8000);
             if (im) return im;
         }
         return null;
@@ -7517,8 +7534,9 @@ SOL,100</pre></div>
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         nftScanState.cancelled = false;
-        showModal('nftScanProgressModal');
+        showModal('nftScanProgressModal', true);   // launched from the reorder overlay
         nftScanProgress('Building collage', '0/' + n + ' — loading artwork');
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); // let it paint
 
         let drawn = 0, missing = 0;
         for (let i = 0; i < n; i += 8) {
@@ -7622,13 +7640,50 @@ SOL,100</pre></div>
         ethereum: {
             key: 'ethereum', kind: 'evm', label: 'Ethereum',
             walletChainType: 'evm',
-            etherscanChainId: 1,
+            etherscanChainId: 1,          // presence of this = "all ever owned" is possible
             alchemyNetwork: 'eth-mainnet',
             rpcUrl: () => EVM_RPC_URLS['ethereum'],
             coingeckoPlatform: 'ethereum',
+            hasFloors: true,
+        },
+        // Both L2s below are Alchemy-only: no Etherscan history endpoint and no marketplace
+        // floor feed, so they scan current holdings and every value is typed in by hand.
+        ink: {
+            key: 'ink', kind: 'evm', label: 'Ink',
+            walletChainType: 'evm',
+            alchemyNetwork: 'ink-mainnet',
+            hasFloors: false,
+        },
+        robinhood: {
+            key: 'robinhood', kind: 'evm', label: 'Robinhood',
+            walletChainType: 'evm',
+            alchemyNetwork: 'robinhood-mainnet',
+            hasFloors: false,
         },
     };
-    const NFT_SCAN_ACTIVE_CHAINS = ['ethereum'];
+
+    // Which chains a scan covers. Ethereum only by default — every extra chain is another
+    // full pass over every wallet, so the user opts in.
+    let nftScanChains = { ethereum: true, ink: false, robinhood: false };
+    function loadNftScanChains() {
+        try {
+            const d = JSON.parse(localStorage.getItem(lsKey('nftScanChains')));
+            if (d && typeof d === 'object') Object.keys(NFT_SCAN_CHAINS).forEach(k => { nftScanChains[k] = !!d[k]; });
+        } catch (e) {}
+        if (!Object.keys(NFT_SCAN_CHAINS).some(k => nftScanChains[k])) nftScanChains.ethereum = true;
+    }
+    function saveNftScanChains() {
+        try { localStorage.setItem(lsKey('nftScanChains'), JSON.stringify(nftScanChains)); } catch (e) {}
+    }
+    function activeNftScanChains() {
+        return Object.keys(NFT_SCAN_CHAINS).filter(k => nftScanChains[k]);
+    }
+    function toggleNftScanChain(key) {
+        nftScanChains[key] = !nftScanChains[key];
+        if (!activeNftScanChains().length) { nftScanChains[key] = true; toast('At least one chain has to stay selected', 'warning'); }
+        saveNftScanChains();
+        renderNftScanChainPicker();
+    }
 
     // cloudflare-ipfs.com was retired and now fails every request. Public gateways are
     // individually flaky — ipfs.io in particular rate-limits browser traffic and then serves
@@ -7714,8 +7769,35 @@ SOL,100</pre></div>
             }
         }
         refreshAlchemyKeyUI();
+        renderNftScanChainPicker();
         document.getElementById('nftScanIntro').style.display = 'none';
         document.getElementById('nftScanOptions').style.display = 'block';
+    }
+
+    function renderNftScanChainPicker() {
+        const wrap = document.getElementById('nftScanChainPicker');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        Object.keys(NFT_SCAN_CHAINS).forEach(k => {
+            const chain = NFT_SCAN_CHAINS[k];
+            const on = !!nftScanChains[k];
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'nft-scan-view-btn' + (on ? ' active' : '');
+            b.textContent = (on ? '✓ ' : '') + chain.label;
+            b.title = chain.hasFloors
+                ? 'Floor prices available'
+                : chain.label + ' has no marketplace floor feed — values are typed in by hand';
+            b.onclick = () => toggleNftScanChain(k);
+            wrap.appendChild(b);
+        });
+        const note = document.createElement('span');
+        note.style.cssText = 'font-size:0.65rem;color:#666;margin-left:4px';
+        const extras = activeNftScanChains().filter(k => !NFT_SCAN_CHAINS[k].hasFloors);
+        note.textContent = extras.length
+            ? extras.map(k => NFT_SCAN_CHAINS[k].label).join(' and ') + ': held NFTs only, no floor prices'
+            : '';
+        wrap.appendChild(note);
     }
 
     function refreshAlchemyKeyUI() {
@@ -7748,7 +7830,7 @@ SOL,100</pre></div>
     }
 
     function nftScanEligibleWallets() {
-        const types = new Set(NFT_SCAN_ACTIVE_CHAINS.map(k => NFT_SCAN_CHAINS[k].walletChainType));
+        const types = new Set(activeNftScanChains().map(k => NFT_SCAN_CHAINS[k].walletChainType));
         return wallets.filter(w => types.has(w.chainType) && w.address);
     }
 
@@ -7793,7 +7875,7 @@ SOL,100</pre></div>
         // Alchemy is the fast, complete path but it only knows what a wallet holds *now*.
         // "All ever owned" is a history question, so it stays on Etherscan transfers.
         const useAlchemy = hasAlchemyKey() && nftScanMode === 'held';
-        nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: useAlchemy ? 'alchemy' : 'etherscan', ethUsd: 0, alchemyFailed: '' };
+        nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: useAlchemy ? 'alchemy' : 'etherscan', ethUsd: 0, alchemyFailed: '', chainErrors: [] };
         closeModal('addNFTModal');
         resetNftScanPanel();
         showModal('nftScanProgressModal');
@@ -7869,7 +7951,11 @@ SOL,100</pre></div>
                 });
                 pricedByContract.forEach((eth, k) => { if (ethUsd > 0) nftFloorCache[k] = eth * ethUsd; });
 
-                const needFloor = contracts.filter(r => !pricedByContract.has(r.contract.toLowerCase()));
+                // Chains with no marketplace feed return null for every contract, so don't
+                // spend the lookup budget proving it.
+                const needFloor = contracts.filter(r =>
+                    !pricedByContract.has(r.contract.toLowerCase()) &&
+                    NFT_SCAN_CHAINS[r.chain] && NFT_SCAN_CHAINS[r.chain].hasFloors);
                 const floorTargets = needFloor.slice(0, NFT_ALCHEMY_MAX_FLOOR_LOOKUPS);
                 if (needFloor.length > floorTargets.length) nftScanState.floorCapped = true;
                 for (let i = 0; i < floorTargets.length; i++) {
@@ -7953,7 +8039,7 @@ SOL,100</pre></div>
     // Alchemy→Etherscan fallback can simply run it a second time against a fresh ledger.
     async function runNftDiscovery(eligible, ledger) {
         const alchemy = nftScanState.source === 'alchemy';
-        for (const chainKey of NFT_SCAN_ACTIVE_CHAINS) {
+        for (const chainKey of activeNftScanChains()) {
             if (nftScanState.cancelled) break;
             const chain = NFT_SCAN_CHAINS[chainKey];
             const chainWallets = eligible.filter(w => w.chainType === chain.walletChainType);
@@ -7962,15 +8048,27 @@ SOL,100</pre></div>
                 const w = chainWallets[i];
                 nftScanProgress((alchemy ? 'Reading ' + chain.label + ' wallets' : 'Reading ' + chain.label + ' transfers'),
                     '(' + (i + 1) + '/' + chainWallets.length + ') ' + w.label);
-                await discoverNftsForChain(chain, w, ledger);
+                try {
+                    await discoverNftsForChain(chain, w, ledger);
+                } catch (e) {
+                    // Ethereum has an Etherscan fallback worth escalating to; a secondary
+                    // chain failing should never sink the whole scan.
+                    if (chainKey === 'ethereum') throw e;
+                    console.warn('[NFT-Scan] ' + chain.label + ' failed:', e);
+                    nftScanState.chainErrors.push(chain.label + ' — ' + ((e && e.message) || 'unavailable'));
+                    break; // no point trying the remaining wallets on this chain
+                }
             }
         }
     }
 
     async function discoverNftsForChain(chain, wallet, ledger) {
         // Alchemy returns current holdings directly, so it can only answer "currently held".
-        // "All ever owned" still needs the transfer history, which only Etherscan has.
-        if (chain.kind === 'evm' && nftScanState.source === 'alchemy') return discoverAlchemyNfts(chain, wallet, ledger);
+        // "All ever owned" still needs the transfer history, which only Etherscan has — and
+        // only where we have an Etherscan chain id, so the L2s always take the Alchemy path.
+        if (chain.kind === 'evm' && (nftScanState.source === 'alchemy' || !chain.etherscanChainId)) {
+            return discoverAlchemyNfts(chain, wallet, ledger);
+        }
         if (chain.kind === 'evm') return discoverEvmNfts(chain, wallet, ledger);
         // Part 2: Solana via Helius plugs in here as another `kind`.
         console.warn('[NFT-Scan] no discovery handler for chain kind:', chain.kind);
@@ -8029,8 +8127,16 @@ SOL,100</pre></div>
             let data;
             try {
                 const r = await fetch(url);
-                if (r.status === 401 || r.status === 403) throw new Error('Alchemy rejected the API key');
                 if (r.status === 429) { await delay(1500); continue; } // brief backoff, then retry the same page
+                if (r.status === 401 || r.status === 403) {
+                    // Alchemy returns a plain-text hint here when the network exists but is
+                    // switched off for the app, which is a fixable setting rather than a bad key.
+                    const body = await r.text().catch(() => '');
+                    if (/not enabled for this app/i.test(body)) {
+                        throw new Error('not enabled for this Alchemy app — turn ' + chain.label + ' on in your Alchemy dashboard');
+                    }
+                    throw new Error('Alchemy rejected the API key');
+                }
                 if (!r.ok) throw new Error('Alchemy returned HTTP ' + r.status);
                 data = await r.json();
             } catch (e) {
@@ -8654,6 +8760,12 @@ SOL,100</pre></div>
         const alchemy = nftScanState.source === 'alchemy';
         if (alchemy) notes.push('Artwork and most floor prices came from Alchemy, which serves cached images and its own spam classification.');
         if (nftScanState.alchemyFailed) notes.push('Alchemy was unavailable (' + nftScanState.alchemyFailed + '), so this used the slower Etherscan method — expect fewer images and floor prices.');
+        (nftScanState.chainErrors || []).forEach(m => notes.push('Skipped ' + m + '.'));
+        // Only Ethereum has both a history endpoint and a floor feed; say so once rather than
+        // letting empty values on an L2 look like a failure.
+        activeNftScanChains().filter(k => !NFT_SCAN_CHAINS[k].hasFloors).forEach(k => {
+            notes.push(NFT_SCAN_CHAINS[k].label + ' has no floor-price feed and no transfer history, so it contributes currently-held NFTs with no value — click a value to price a whole collection.');
+        });
         if (!alchemy && nftScanState.metaCapped) notes.push('Artwork was resolved for the ' + NFT_SCAN_MAX_METADATA + ' most recent NFTs; the rest show a placeholder.');
         if (nftScanState.floorCapped) notes.push('Floor prices were checked for the first ' + (alchemy ? NFT_ALCHEMY_MAX_FLOOR_LOOKUPS : NFT_SCAN_MAX_FLOOR_LOOKUPS) + ' collections that needed a lookup.');
         if (alchemy && !nftScanState.ethUsd) notes.push('The ETH price could not be fetched, so floors that were quoted in ETH are missing — click any value to set one.');
