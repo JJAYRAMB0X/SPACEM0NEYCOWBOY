@@ -269,8 +269,22 @@
         .file-input { display: none; }
 
         /* ===== GLOBAL STATS BANNER ===== */
-        .global-stats {
+        /* Anchors the stats bar and the quick sort button as one top-right cluster, so the
+           button sits to the left of the stats however wide those get. */
+        .right-hud {
             position: absolute; top: 12px; right: 16px; z-index: 50;
+            display: flex; gap: 10px; align-items: center;
+        }
+        .hud-sort-btn {
+            display: flex; align-items: center; gap: 5px;
+            background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;
+            padding: 6px 12px; font-size: 0.7rem; font-weight: 600; color: #8a8a99;
+            cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.25s;
+        }
+        .hud-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.85); border-color: rgba(150,200,255,0.3); }
+        .hud-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.45); color: rgba(200,230,255,0.95); }
+        .global-stats {
             display: flex; gap: 16px; align-items: center;
             background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
             border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
@@ -1274,13 +1288,18 @@
         <!-- RIGHT COLUMN -->
         <div class="right-column" id="rightColumn">
             <canvas class="bg-chart" id="bgChart"></canvas>
-            <div class="global-stats" id="globalStats">
-                <div class="gs-item"><span class="gs-label">Mkt Cap</span><span class="gs-val" id="gsMarketCap">—</span></div>
-                <div class="gs-item gs-change" id="gsChange">—</div>
-                <div class="gs-item"><span class="gs-label">BTC</span><span class="gs-val" id="gsBtcDom">—</span></div>
-                <div class="gs-item"><span class="gs-label">24h Vol</span><span class="gs-val" id="gsVolume">—</span></div>
-                <div class="gs-item gs-divider"></div>
-                <div class="gs-item gs-fg" id="gsFng" title="Crypto Fear &amp; Greed Index"><span class="gs-label">F&amp;G</span><span class="gs-val gs-fg-val" id="gsFngVal">—</span></div>
+            <!-- The button stays OUTSIDE #globalStats: the screensaver clones that element's
+                 innerHTML for its own stats bar, and it already has its own sort palette. -->
+            <div class="right-hud" id="rightHud">
+                <button class="hud-sort-btn" id="hudChangeBtn" onclick="hudToggleChangeSort()" title="Sort by 24h change — same as the 24h Chg button in the sidebar. Click again to reverse, a third time to clear.">24h Chg <span class="sort-arrow">↓</span></button>
+                <div class="global-stats" id="globalStats">
+                    <div class="gs-item"><span class="gs-label">Mkt Cap</span><span class="gs-val" id="gsMarketCap">—</span></div>
+                    <div class="gs-item gs-change" id="gsChange">—</div>
+                    <div class="gs-item"><span class="gs-label">BTC</span><span class="gs-val" id="gsBtcDom">—</span></div>
+                    <div class="gs-item"><span class="gs-label">24h Vol</span><span class="gs-val" id="gsVolume">—</span></div>
+                    <div class="gs-item gs-divider"></div>
+                    <div class="gs-item gs-fg" id="gsFng" title="Crypto Fear &amp; Greed Index"><span class="gs-label">F&amp;G</span><span class="gs-val gs-fg-val" id="gsFngVal">—</span></div>
+                </div>
             </div>
             <button class="collapse-btn" id="collapseBtn" onclick="togglePanel()">
                 <span id="collapseIcon">◀</span>
@@ -2517,6 +2536,11 @@ SOL,100</pre></div>
         // Sync CAD button to restored currencyMode (before portfolio loads)
         const cadBtn = document.getElementById('cadBtn');
         if (cadBtn) { cadBtn.textContent = currencyMode === 'cad' ? 'CAD' : 'USD'; cadBtn.classList.toggle('active', currencyMode === 'cad'); }
+
+        // Before the first render, so the restored view is what gets drawn rather than orbit
+        // being drawn and then replaced.
+        loadViewState();
+        syncAllSortButtons();
 
         if (Store.load()) {
             // Ensure builtin categories exist and all tokens are assigned
@@ -6493,22 +6517,24 @@ SOL,100</pre></div>
                 sortField = null; sortDir = 'desc'; btn.classList.remove('active');
                 if (viewMode === 'regroup') document.getElementById('regroupBtn').classList.add('active');
                 else document.getElementById('orbitBtn').classList.add('active');
+                syncHudSortButton(); saveViewState();   // clearing the sort is a state change too
                 renderNetwork(); updateResetBtn(); return;
             }
         } else {
-            document.querySelectorAll('.sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
+            document.querySelectorAll('.sort-buttons .sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
             sortField = field; sortDir = 'desc';
         }
         document.getElementById('orbitBtn').classList.remove('active');
         document.getElementById('regroupBtn').classList.remove('active');
-        btn.classList.add('active'); renderNetwork(); updateResetBtn();
+        btn.classList.add("active"); syncHudSortButton(); saveViewState(); renderNetwork(); updateResetBtn();
     }
 
     function activateOrbitMode() {
         if (!sortField && viewMode === 'orbit') return;
         sortField = null; sortDir = 'desc'; viewMode = 'orbit';
-        document.querySelectorAll('.sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
-        document.getElementById('orbitBtn').classList.add('active');
+        document.querySelectorAll('.sort-buttons .sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
+        document.getElementById("orbitBtn").classList.add("active");
+        syncHudSortButton(); saveViewState();
         renderNetwork(); updateResetBtn();
     }
 
@@ -6518,8 +6544,9 @@ SOL,100</pre></div>
         // Always clear any active sort so clicking Grid View returns to the default
         // alphabetical sort applied silently in getFilteredTokens.
         sortField = null; sortDir = 'desc';
-        document.querySelectorAll('.sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
-        document.getElementById('regroupBtn').classList.add('active');
+        document.querySelectorAll('.sort-buttons .sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
+        document.getElementById("regroupBtn").classList.add("active");
+        syncHudSortButton(); saveViewState();
         renderNetwork(); updateResetBtn();
     }
 
@@ -6556,6 +6583,64 @@ SOL,100</pre></div>
     function collToggleSort(field) { toggleSort(field); syncCollapseSortButtons(); syncSsSortButtons(); }
     function collActivateOrbitMode() { activateOrbitMode(); syncCollapseSortButtons(); syncSsSortButtons(); }
     function collActivateRegroupMode() { activateRegroupMode(); syncCollapseSortButtons(); syncSsSortButtons(); }
+
+    // The top-right copy of the sidebar's 24h Chg button. Shares toggleSort, so the two are
+    // the same control in two places rather than two states to keep in step.
+    function hudToggleChangeSort() { toggleSort('priceChange'); syncCollapseSortButtons(); syncSsSortButtons(); }
+
+    function syncHudSortButton() {
+        const btn = document.getElementById('hudChangeBtn');
+        if (!btn) return;
+        const on = sortField === 'priceChange';
+        btn.classList.toggle('active', on);
+        const arrow = btn.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = on && sortDir === 'asc' ? '↑' : '↓';
+    }
+
+    // --- remembering the view -----------------------------------------------
+    // The orbit view is the prettier first impression, but it is not what you want to land in
+    // every single time, so the last view and sort are restored on load.
+    const SORT_FIELDS = ['marketCap', 'value', 'whaleScore', 'priceChange'];
+
+    function saveViewState() {
+        try { localStorage.setItem(lsKey('viewState'), JSON.stringify({ viewMode, sortField, sortDir })); } catch (e) {}
+    }
+
+    function loadViewState() {
+        try {
+            const d = JSON.parse(localStorage.getItem(lsKey('viewState')));
+            if (!d || typeof d !== 'object') return;
+            // Validate rather than trust: a stale or hand-edited value would otherwise sort by
+            // a field that no longer exists and silently render nothing.
+            viewMode = d.viewMode === 'regroup' ? 'regroup' : 'orbit';
+            sortField = SORT_FIELDS.indexOf(d.sortField) !== -1 ? d.sortField : null;
+            sortDir = d.sortDir === 'asc' ? 'asc' : 'desc';
+        } catch (e) {}
+    }
+
+    // Paints every sort palette from the current state. Used after restoring, where no button
+    // was clicked to set the highlight.
+    function syncAllSortButtons() {
+        document.querySelectorAll('.sort-buttons .sort-btn').forEach(b => {
+            b.classList.remove('active');
+            const a = b.querySelector('.sort-arrow');
+            if (a) a.textContent = '↓';
+        });
+        if (sortField) {
+            const btn = document.querySelector('.sort-buttons .sort-btn[data-sort="' + sortField + '"]');
+            if (btn) {
+                btn.classList.add('active');
+                const a = btn.querySelector('.sort-arrow');
+                if (a) a.textContent = sortDir === 'asc' ? '↑' : '↓';
+            }
+        } else {
+            const btn = document.getElementById(viewMode === 'regroup' ? 'regroupBtn' : 'orbitBtn');
+            if (btn) btn.classList.add('active');
+        }
+        syncCollapseSortButtons();
+        syncSsSortButtons();
+        syncHudSortButton();
+    }
 
     // ============================================================
     // NETWORK VISUALIZATION
