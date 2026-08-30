@@ -596,6 +596,24 @@
         .nft-table-art.set { color: #f59e0b; border-color: rgba(245,158,11,0.45); }
         .nft-table-del { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 6px; padding: 2px 7px; font-size: 0.7rem; cursor: pointer; font-family: inherit; line-height: 1.2; }
         .nft-table-del:hover { background: #ef4444; color: #fff; }
+        /* Tag chips in the list view, and the per-NFT tag menu they open. */
+        .nft-tag-cell { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; cursor: pointer; min-height: 20px; max-width: 190px; }
+        .nft-tag-chip { display: inline-block; font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; white-space: nowrap; line-height: 1.5; }
+        .nft-tag-add { background: rgba(255,255,255,0.06); border: 1px dashed rgba(255,255,255,0.22); color: #778; border-radius: 999px; padding: 1px 7px; font-size: 0.62rem; cursor: pointer; font-family: inherit; line-height: 1.5; }
+        .nft-tag-cell:hover .nft-tag-add { border-color: rgba(0,212,255,0.55); color: #00d4ff; }
+        .nft-tag-menu { position: fixed; z-index: 4000; width: 226px; max-height: 320px; overflow-y: auto; background: #14141f; border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; box-shadow: 0 12px 34px rgba(0,0,0,0.6); padding: 7px; }
+        .nft-tag-menu-head { font-size: 0.62rem; color: #666; padding: 3px 6px 5px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .nft-tag-row { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 7px; cursor: pointer; font-size: 0.72rem; color: #ccd; }
+        .nft-tag-row:hover { background: rgba(255,255,255,0.07); }
+        .nft-tag-row.auto { cursor: default; opacity: 0.75; }
+        .nft-tag-row.auto:hover { background: none; }
+        .nft-tag-check { width: 13px; flex: 0 0 13px; color: #00d4ff; font-size: 0.75rem; }
+        .nft-tag-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+        .nft-tag-note { font-size: 0.58rem; color: #556; margin-left: auto; }
+        .nft-tag-drop { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 0.7rem; padding: 0 2px; margin-left: auto; opacity: 0.5; font-family: inherit; }
+        .nft-tag-drop:hover { opacity: 1; }
+        .nft-tag-new { display: flex; gap: 5px; padding: 6px 4px 2px; border-top: 1px solid rgba(255,255,255,0.09); margin-top: 5px; }
+        .nft-tag-new input { flex: 1; min-width: 0; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.16); border-radius: 7px; padding: 4px 8px; color: #e2e8f0; font-size: 0.7rem; font-family: inherit; }
         .nft-table-danger { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); color: #ef4444; border-radius: 999px; padding: 4px 11px; font-size: 0.66rem; cursor: pointer; font-family: inherit; }
         .nft-table-danger:hover:not(:disabled) { background: #ef4444; color: #fff; }
         .nft-table-danger:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -1989,6 +2007,8 @@ SOL,100</pre></div>
                     <span>Only unpriced</span>
                 </label>
                 <button class="nft-scan-view-btn" id="nftCollSortBtn" style="padding:4px 9px;font-size:0.66rem" onclick="setNftCollSort(nftCollSort === 'value' ? 'name' : 'value')">A–Z</button>
+                <select id="nftTableTagFilter" onchange="onNftTableFilterChange()" title="Narrows both the list and the collection dropdown beside it"
+                        style="flex:0 1 150px;min-width:120px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
                 <select id="nftTableFilter" onchange="onNftTableFilterChange()"
                         style="flex:1;min-width:180px;max-width:320px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)">Select all shown</button>
@@ -2301,6 +2321,109 @@ SOL,100</pre></div>
     // Manually added NFTs simply have no entry here, which is what keeps them out of every scan-side code path.
     function saveNftMeta() { localStorage.setItem(lsKey('nftMeta'), JSON.stringify(nftMeta)); }
     function loadNftMeta() { try { const d = JSON.parse(localStorage.getItem(lsKey('nftMeta'))); if (d && typeof d === 'object') nftMeta = d; } catch(e) {} }
+
+    // ============================================================
+    // NFT TAGS
+    // ============================================================
+    // Two kinds, stored differently on purpose:
+    //   chain tags  — derived from nftMeta[url].chain every time they're read, never stored.
+    //                 A rescan that corrects an NFT's chain corrects its tag for free, the two
+    //                 can't drift apart, and there's no way to delete a tag that states a fact.
+    //   custom tags — the user's own, stored per URL in nftTagsByUrl and defined in nftTagDefs.
+    //
+    // These are deliberately NOT the coin `categories` Map. Sharing it would mean deleting a
+    // category from the portfolio UI silently stripped NFT tags, and that Map is auto-populated
+    // from portfolio tokens, which NFTs are not.
+    let nftTagDefs = {};      // name -> { color }
+    let nftTagsByUrl = {};    // url  -> [name, ...]
+    const NFT_MANUAL_TAG = 'manual';
+
+    function saveNftTags() {
+        try {
+            localStorage.setItem(lsKey('nftTagDefs'), JSON.stringify(nftTagDefs));
+            localStorage.setItem(lsKey('nftTagsByUrl'), JSON.stringify(nftTagsByUrl));
+        } catch (e) {}
+    }
+    function loadNftTags() {
+        try { const d = JSON.parse(localStorage.getItem(lsKey('nftTagDefs'))); if (d && typeof d === 'object') nftTagDefs = d; } catch (e) {}
+        try { const d = JSON.parse(localStorage.getItem(lsKey('nftTagsByUrl'))); if (d && typeof d === 'object') nftTagsByUrl = d; } catch (e) {}
+    }
+
+    function nftChainTag(url) { return (nftMeta[url] || {}).chain || NFT_MANUAL_TAG; }
+    function isNftChainTag(name) { return name === NFT_MANUAL_TAG || !!NFT_SCAN_CHAINS[name]; }
+    // Only tags whose definition still exists count — deleting a tag doesn't have to walk
+    // every URL to stay consistent.
+    function nftCustomTagsOf(url) {
+        const list = nftTagsByUrl[url];
+        return Array.isArray(list) ? list.filter(t => nftTagDefs[t]) : [];
+    }
+    function nftTagsOf(url) { return [nftChainTag(url)].concat(nftCustomTagsOf(url)); }
+    function nftHasTag(url, tag) { return !tag || nftTagsOf(url).indexOf(tag) !== -1; }
+
+    function nftTagLabel(name) {
+        if (nftTagDefs[name]) return name;
+        if (name === NFT_MANUAL_TAG) return 'Manual';
+        return (NFT_SCAN_CHAINS[name] && NFT_SCAN_CHAINS[name].label) || (name.charAt(0).toUpperCase() + name.slice(1));
+    }
+    function nftTagColor(name) {
+        if (nftTagDefs[name] && nftTagDefs[name].color) return nftTagDefs[name].color;
+        if (CHAIN_COLORS[name]) return CHAIN_COLORS[name];
+        if (name === NFT_MANUAL_TAG) return '#64748b';
+        const used = Object.keys(nftTagDefs).map(n => nftTagDefs[n].color);
+        return CAT_COLORS.find(c => used.indexOf(c) === -1) || CAT_COLORS[0];
+    }
+
+    // Every tag in play, chain tags first, each with how many NFTs carry it.
+    function allNftTags() {
+        const counts = new Map();
+        nftGallery.forEach(u => nftTagsOf(u).forEach(t => counts.set(t, (counts.get(t) || 0) + 1)));
+        // A tag just created but not yet applied still belongs in the list, or it would vanish
+        // the moment it was made.
+        Object.keys(nftTagDefs).forEach(t => { if (!counts.has(t)) counts.set(t, 0); });
+        return [...counts.entries()]
+            .map(([name, count]) => ({ name, count, custom: !!nftTagDefs[name], label: nftTagLabel(name), color: nftTagColor(name) }))
+            .sort((a, b) => (a.custom - b.custom) || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    }
+
+    function normalizeNftTagName(raw) {
+        return String(raw == null ? '' : raw).trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 24);
+    }
+
+    function createNftTag(raw) {
+        const name = normalizeNftTagName(raw);
+        if (!name) return '';
+        if (nftTagDefs[name]) return name;
+        // A custom tag can't shadow a chain tag: chain tags are computed, so the custom one
+        // would be invisible in the list and impossible to remove.
+        if (isNftChainTag(name)) { toast('"' + nftTagLabel(name) + '" is already a chain tag', 'warning'); return ''; }
+        nftTagDefs[name] = { color: nftTagColor(name) };
+        saveNftTags();
+        return name;
+    }
+
+    function toggleNftTag(url, tag) {
+        if (!nftTagDefs[tag]) return;   // chain tags are facts, not choices
+        const list = nftCustomTagsOf(url);
+        const at = list.indexOf(tag);
+        if (at === -1) list.push(tag); else list.splice(at, 1);
+        if (list.length) nftTagsByUrl[url] = list; else delete nftTagsByUrl[url];
+        saveNftTags();
+    }
+
+    function deleteNftTagEverywhere(tag) {
+        if (!nftTagDefs[tag]) return 0;
+        let n = 0;
+        Object.keys(nftTagsByUrl).forEach(u => {
+            if (nftTagsByUrl[u].indexOf(tag) === -1) return;
+            const list = nftTagsByUrl[u].filter(t => t !== tag);
+            n++;
+            if (list.length) nftTagsByUrl[u] = list; else delete nftTagsByUrl[u];
+        });
+        delete nftTagDefs[tag];
+        saveNftTags();
+        return n;
+    }
+
     function getNftValue(idx) { return nftValues[nftGallery[idx]] || 0; }
     function setNftValue(idx, val) { nftValues[nftGallery[idx]] = val; saveNftValues(); recalcNftTotal(); }
     function sumNftValues() { return nftGallery.reduce((sum, url) => sum + (nftValues[url] || 0), 0); }
@@ -2343,7 +2466,7 @@ SOL,100</pre></div>
         if (demoBtn) demoBtn.style.display = DEMO_MODE ? 'none' : '';
         showModal('welcomeModal');
     }
-    function closeOverlay(id) { document.getElementById(id).classList.remove('active'); if (id === 'nftOverlay' && overlaySlideshowTimer) toggleOverlaySlideshow(); if (id === 'nftReorderOverlay') { saveNFTs(); updateNFTDisplay(); } }
+    function closeOverlay(id) { document.getElementById(id).classList.remove('active'); if (id === 'nftOverlay' && overlaySlideshowTimer) toggleOverlaySlideshow(); if (id === 'nftReorderOverlay') { closeNftTagMenu(); saveNFTs(); updateNFTDisplay(); } }
 
     // ============================================================
     // INITIALIZATION
@@ -2360,6 +2483,7 @@ SOL,100</pre></div>
         loadNftValue();
         loadNftValues();
         loadNftMeta();
+        loadNftTags();
         loadAlchemyKey();
         loadNftSpamOverrides();
         loadNftScanChains();
@@ -8153,14 +8277,17 @@ SOL,100</pre></div>
 
     // Any deliberate filter change is a fresh pass, so the stickiness resets.
     function onNftTableFilterChange() {
+        closeNftTagMenu();   // its anchor row may be filtered out by the change
         nftTableJustPriced.clear();
         renderReorderGrid();
     }
 
     function clearNftTableFilters() {
         const sel = document.getElementById('nftTableFilter');
+        const tag = document.getElementById('nftTableTagFilter');
         const cb = document.getElementById('nftTableUnpricedOnly');
         if (sel) sel.value = '';
+        if (tag) tag.value = '';
         if (cb) cb.checked = false;
         nftTableJustPriced.clear();
         renderReorderTable();
@@ -8177,6 +8304,7 @@ SOL,100</pre></div>
             if (!doomed.has(u)) return true;
             delete nftValues[u];
             delete nftMeta[u];
+            delete nftTagsByUrl[u];
             nftTablePicked.delete(u);
             n++;
             return false;
@@ -8184,7 +8312,7 @@ SOL,100</pre></div>
         const at = nftGallery.indexOf(wasShowing);
         nftIdx = at !== -1 ? at : Math.min(nftIdx, Math.max(0, nftGallery.length - 1));
         if (n > 0) {
-            saveNFTs(); saveNftValues(); saveNftMeta();
+            saveNFTs(); saveNftValues(); saveNftMeta(); saveNftTags();
             recalcNftTotal();
             updateNFTDisplay();
         }
@@ -8362,9 +8490,11 @@ SOL,100</pre></div>
         try { nftCollSort = localStorage.getItem(lsKey('nftCollSort')) === 'value' ? 'value' : 'name'; } catch (e) {}
     }
 
-    function galleryCollections() {
+    // `urls` narrows the source set — the tag filter passes the NFTs carrying that tag, so the
+    // collection dropdown only offers collections that actually have something in it.
+    function galleryCollections(urls) {
         const stats = new Map();
-        nftGallery.forEach(u => {
+        (urls || nftGallery).forEach(u => {
             const c = nftCollectionOf(u);
             const s = stats.get(c) || { count: 0, value: 0 };
             s.count++;
@@ -8380,6 +8510,7 @@ SOL,100</pre></div>
     function nftTableRows() {
         const onlyUnpriced = (document.getElementById('nftTableUnpricedOnly') || {}).checked;
         const q = ((document.getElementById('nftTableFilter') || {}).value || '').trim().toLowerCase();
+        const tag = nftTableTagFilter();
         let rows = nftGallery.map((url, idx) => ({
             idx, url,
             collection: nftCollectionOf(url),
@@ -8387,7 +8518,9 @@ SOL,100</pre></div>
             chain: (nftMeta[url] && nftMeta[url].chain) || '',
             wallet: nftWalletsOf(url).join(', '),
             value: nftValues[url] || 0,
+            tags: nftTagsOf(url),
         }));
+        if (tag) rows = rows.filter(r => r.tags.indexOf(tag) !== -1);
         // A row priced during this pass stays put rather than vanishing mid-edit — otherwise
         // typing a value removes the row before you can hit "→ all" on it. Re-ticking the
         // checkbox (or clearing filters) drops them and shows what is genuinely left.
@@ -8413,12 +8546,38 @@ SOL,100</pre></div>
         renderReorderTable();
     }
 
+    function nftTableTagFilter() {
+        return ((document.getElementById('nftTableTagFilter') || {}).value || '').trim();
+    }
+
+    // Rebuilds the tag dropdown. Chain tags come first and are always present; custom tags
+    // follow. Counts are of the whole gallery, not the current view, so the number doesn't
+    // change out from under you as you narrow things down.
+    function renderNftTagFilterOptions() {
+        const sel = document.getElementById('nftTableTagFilter');
+        if (!sel) return;
+        const keep = sel.value;
+        const tags = allNftTags();
+        const chainTags = tags.filter(t => !t.custom);
+        const customTags = tags.filter(t => t.custom);
+        const opt = t => '<option value="' + escapeHtml(t.name) + '">' + escapeHtml(t.label) + ' (' + t.count + ')</option>';
+        sel.innerHTML = '<option value="">All tags (' + nftGallery.length + ')</option>' +
+            (chainTags.length ? '<optgroup label="Chain">' + chainTags.map(opt).join('') + '</optgroup>' : '') +
+            (customTags.length ? '<optgroup label="Your tags">' + customTags.map(opt).join('') + '</optgroup>' : '');
+        sel.value = tags.some(t => t.name === keep) ? keep : '';
+    }
+
     function renderNftTableFilterOptions() {
+        renderNftTagFilterOptions();
         const sel = document.getElementById('nftTableFilter');
         if (!sel) return;
         const keep = sel.value;
-        const colls = galleryCollections();
-        sel.innerHTML = '<option value="">All collections (' + nftGallery.length + ')</option>' +
+        // The tag filter scopes the collection list: a collection with nothing carrying the
+        // selected tag isn't offered at all, rather than being offered and yielding no rows.
+        const tag = nftTableTagFilter();
+        const scoped = tag ? nftGallery.filter(u => nftHasTag(u, tag)) : nftGallery;
+        const colls = galleryCollections(scoped);
+        sel.innerHTML = '<option value="">All collections (' + scoped.length + ')</option>' +
             colls.map(([c, n, v]) => '<option value="' + escapeHtml(c.toLowerCase()) + '">' + escapeHtml(c) + ' (' + n +
                 (nftCollSort === 'value' && v > 0 ? ' · ' + curSym() + Math.round(toCur(v)).toLocaleString() : '') +
                 ')</option>').join('');
@@ -8465,6 +8624,9 @@ SOL,100</pre></div>
               th('collection', 'Collection') +
               th('token', 'Token') +
               th('chain', 'Chain') +
+              // Not sortable for the same reason as Wallet: an NFT can carry several tags, so
+              // there is no single value to order by.
+              '<th class="nosort">Tags</th>' +
               // Deliberately not sortable: which wallet holds a token says nothing about how
               // the gallery should be arranged, and sorting by it would split collections.
               '<th class="nosort">Wallet</th>' +
@@ -8516,6 +8678,25 @@ SOL,100</pre></div>
                 ? '<span style="color:#778">' + escapeHtml((NFT_SCAN_CHAINS[r.chain] && NFT_SCAN_CHAINS[r.chain].label) || r.chain) + '</span>'
                 : '<span style="color:#556">manual</span>';
 
+            const cTags = document.createElement('td');
+            const tagBox = document.createElement('div');
+            tagBox.className = 'nft-tag-cell';
+            tagBox.title = 'Click to tag this NFT';
+            r.tags.forEach(t => {
+                const chip = document.createElement('span');
+                chip.className = 'nft-tag-chip';
+                const col = nftTagColor(t);
+                chip.style.cssText = 'background:' + col + '26;border:1px solid ' + col + '66;color:' + col;
+                chip.textContent = nftTagLabel(t);
+                tagBox.appendChild(chip);
+            });
+            const addBtn = document.createElement('button');
+            addBtn.className = 'nft-tag-add';
+            addBtn.textContent = '+';
+            tagBox.appendChild(addBtn);
+            tagBox.addEventListener('click', e => { e.stopPropagation(); openNftTagMenu(r.url, tagBox); });
+            cTags.appendChild(tagBox);
+
             const cWallet = document.createElement('td');
             cWallet.innerHTML = r.wallet
                 ? '<span class="nft-table-wallet" title="' + escapeHtml(r.wallet) + '">' + escapeHtml(r.wallet) + '</span>'
@@ -8561,7 +8742,7 @@ SOL,100</pre></div>
             del.addEventListener('click', e => { e.stopPropagation(); deleteOneNft(r.idx); });
             cDel.appendChild(del);
 
-            [cPick, cNum, cImg, cColl, cTok, cChain, cWallet, cVal, cAct, cArt, cDel].forEach(td => tr.appendChild(td));
+            [cPick, cNum, cImg, cColl, cTok, cChain, cTags, cWallet, cVal, cAct, cArt, cDel].forEach(td => tr.appendChild(td));
             tbody.appendChild(tr);
         });
         updateNftTableSelectionUI();
@@ -8577,6 +8758,8 @@ SOL,100</pre></div>
             // The two filters stack. Saying so is the difference between "70 still unpriced"
             // next to "Showing 1" reading as a bug and reading as a narrowed view.
             const why = [];
+            const tagFilter = nftTableTagFilter();
+            if (tagFilter) why.push('tag: ' + nftTagLabel(tagFilter));
             if (collFilter) why.push(sel.options[sel.selectedIndex].textContent.replace(/\s*\(.*\)$/, ''));
             if (unpricedOnly) why.push('unpriced only');
             const kept = unpricedOnly ? rows.filter(r => r.value > 0).length : 0;
@@ -8593,6 +8776,126 @@ SOL,100</pre></div>
                 (why.length ? '<button class="nft-scan-view-btn" style="margin-left:auto;padding:3px 10px;font-size:0.66rem" onclick="clearNftTableFilters()">Clear filters</button>' : '') +
                 (collFilter ? '<button class="nft-table-danger"' + (why.length ? '' : ' style="margin-left:auto"') + ' onclick="deleteFilteredCollection()">Delete this whole collection</button>' : '');
         }
+    }
+
+    // --- per-NFT tag menu ---------------------------------------------------
+    // One floating panel reused for every row, so there is never more than one open and no
+    // per-row DOM to keep in sync. It lives on <body> rather than inside the table because the
+    // table scrolls and clips.
+    let nftTagMenuUrl = null;
+
+    function closeNftTagMenu() {
+        const el = document.getElementById('nftTagMenu');
+        if (el) el.remove();
+        nftTagMenuUrl = null;
+        document.removeEventListener('mousedown', onNftTagMenuOutside, true);
+        document.removeEventListener('keydown', onNftTagMenuKey, true);
+    }
+    function onNftTagMenuOutside(e) {
+        const el = document.getElementById('nftTagMenu');
+        if (el && !el.contains(e.target)) closeNftTagMenu();
+    }
+    function onNftTagMenuKey(e) {
+        if (e.key === 'Escape') { e.stopPropagation(); closeNftTagMenu(); }
+    }
+
+    function openNftTagMenu(url, anchor) {
+        // Clicking the same row's chips again closes it, so the cell toggles.
+        if (nftTagMenuUrl === url) { closeNftTagMenu(); return; }
+        closeNftTagMenu();
+        nftTagMenuUrl = url;
+
+        const menu = document.createElement('div');
+        menu.className = 'nft-tag-menu';
+        menu.id = 'nftTagMenu';
+        document.body.appendChild(menu);
+        renderNftTagMenu();
+
+        // Anchor below the cell, then pull back inside the viewport if it would overflow.
+        const r = anchor.getBoundingClientRect();
+        const mh = menu.offsetHeight, mw = menu.offsetWidth;
+        let top = r.bottom + 6, left = r.left;
+        if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+        if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+        menu.style.top = top + 'px';
+        menu.style.left = left + 'px';
+
+        document.addEventListener('mousedown', onNftTagMenuOutside, true);
+        document.addEventListener('keydown', onNftTagMenuKey, true);
+        const input = menu.querySelector('.nft-tag-new input');
+        if (input) input.focus();
+    }
+
+    function renderNftTagMenu() {
+        const menu = document.getElementById('nftTagMenu');
+        const url = nftTagMenuUrl;
+        if (!menu || !url) return;
+        const mine = nftTagsOf(url);
+        menu.innerHTML = '';
+
+        const head = document.createElement('div');
+        head.className = 'nft-tag-menu-head';
+        head.textContent = nftCollectionOf(url);
+        menu.appendChild(head);
+
+        allNftTags().forEach(t => {
+            const on = mine.indexOf(t.name) !== -1;
+            const row = document.createElement('div');
+            // A chain tag is shown so you can see it, but it isn't a choice — it comes from
+            // the NFT's own metadata.
+            row.className = 'nft-tag-row' + (t.custom ? '' : ' auto');
+            row.innerHTML =
+                '<span class="nft-tag-check">' + (on ? '✓' : '') + '</span>' +
+                '<span class="nft-tag-dot" style="background:' + t.color + '"></span>' +
+                '<span>' + escapeHtml(t.label) + '</span>' +
+                (t.custom ? '' : '<span class="nft-tag-note">auto</span>');
+            if (t.custom) {
+                row.addEventListener('click', e => {
+                    e.stopPropagation();
+                    toggleNftTag(url, t.name);
+                    renderNftTagMenu();
+                    renderReorderTable();
+                });
+                const drop = document.createElement('button');
+                drop.className = 'nft-tag-drop';
+                drop.textContent = '✕';
+                drop.title = 'Delete the "' + t.label + '" tag everywhere';
+                drop.addEventListener('click', e => {
+                    e.stopPropagation();
+                    if (!confirm('Delete the "' + t.label + '" tag?\n\nIt will be removed from ' + t.count + ' NFT' + (t.count !== 1 ? 's' : '') + '. The NFTs themselves are not touched.')) return;
+                    deleteNftTagEverywhere(t.name);
+                    renderNftTagMenu();
+                    renderReorderTable();
+                });
+                row.appendChild(drop);
+            }
+            menu.appendChild(row);
+        });
+
+        const box = document.createElement('div');
+        box.className = 'nft-tag-new';
+        box.innerHTML = '<input type="text" placeholder="New tag…" maxlength="24" spellcheck="false">' +
+            '<button class="nft-scan-view-btn" style="padding:3px 9px;font-size:0.65rem">Add</button>';
+        const input = box.querySelector('input');
+        const commit = () => {
+            const name = createNftTag(input.value);
+            if (!name) { input.focus(); return; }
+            // Creating a tag from an NFT's own menu applies it to that NFT — that's the whole
+            // reason you were in this menu.
+            if (nftCustomTagsOf(url).indexOf(name) === -1) toggleNftTag(url, name);
+            input.value = '';
+            renderNftTagMenu();
+            renderReorderTable();
+            const again = document.querySelector('#nftTagMenu .nft-tag-new input');
+            if (again) again.focus();
+        };
+        input.addEventListener('keydown', e => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        });
+        input.addEventListener('click', e => e.stopPropagation());
+        box.querySelector('button').addEventListener('click', e => { e.stopPropagation(); commit(); });
+        menu.appendChild(box);
     }
 
     function updateNftTableSelectionUI() {
@@ -10027,6 +10330,9 @@ SOL,100</pre></div>
                     nftMeta[newUrl] = m;
                     delete nftMeta[url];
                     if (nftValues[url] != null) { nftValues[newUrl] = nftValues[url]; delete nftValues[url]; }
+                    // Tags are keyed by URL too, so they have to move with it or a repaired
+                    // NFT silently loses everything the user tagged it with.
+                    if (nftTagsByUrl[url]) { nftTagsByUrl[newUrl] = nftTagsByUrl[url]; delete nftTagsByUrl[url]; saveNftTags(); }
                 }
             }
             healed++;
