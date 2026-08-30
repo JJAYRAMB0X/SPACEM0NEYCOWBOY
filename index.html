@@ -1781,8 +1781,12 @@ SOL,100</pre></div>
                 </div>
             </div>
             <div id="walletListContainer" style="max-height:260px;overflow-y:auto;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px"></div>
+            <div style="margin:12px 0 4px;border-top:1px solid rgba(255,255,255,0.08);padding-top:10px">
+                <div style="font-size:0.7rem;color:#888;margin-bottom:6px">Chains to scan</div>
+                <div id="walletScanChainPicker" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"></div>
+            </div>
             <div class="modal-actions" style="justify-content:space-between">
-                <button class="btn btn-primary" id="scanWalletsBtn" onclick="startWalletScan()" title="Auto-discover all tokens in your wallets (Ethereum + Solana)">🔍 Scan Wallets</button>
+                <button class="btn btn-primary" id="scanWalletsBtn" onclick="startWalletScan()" title="Auto-discover all tokens in your wallets across the selected chains">🔍 Scan Wallets</button>
                 <button class="btn btn-secondary" onclick="closeWalletManager()">Close</button>
             </div>
         </div>
@@ -2359,6 +2363,7 @@ SOL,100</pre></div>
         loadAlchemyKey();
         loadNftSpamOverrides();
         loadNftScanChains();
+        loadWalletScanChains();
         loadNftScanWalletSel();
         loadNftCollSort();
         loadNftSlideshowPrefs();
@@ -4381,6 +4386,7 @@ SOL,100</pre></div>
     function openWalletManager() {
         loadWallets();
         renderWalletList();
+        renderWalletScanChainPicker();
         document.getElementById('walletLabelInput').value = '';
         document.getElementById('walletAddressInput').value = '';
         showModal('walletManagerModal');
@@ -4811,6 +4817,108 @@ SOL,100</pre></div>
     const SOLANA_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
     const SCAN_DUST_USD = 3;
 
+    // Which EVM chains a wallet scan covers. Everything chain-specific lives here so the scan
+    // itself stays generic — before this table the whole EVM leg was hardcoded to Ethereum.
+    //
+    // `discovery` picks how a wallet's token list is found, and the two answers are not
+    // interchangeable:
+    //   'etherscan' — tokentx transfer history, then one balanceOf per contract. Slow (a call
+    //                 per token) but it needs no Alchemy key, so Ethereum keeps working when
+    //                 the key is missing or rejected.
+    //   'alchemy'   — alchemy_getTokenBalances returns every balance in one paged call, then
+    //                 one getTokenMetadata per *non-zero* token for its decimals. The only
+    //                 option off Ethereum: Etherscan V2 covers 61 chains and Robinhood is not
+    //                 among them, so there is no transfer history to read there.
+    //
+    // `dexscreenerChain` is the chainId DexScreener labels pairs with — it is what makes a
+    // price land on the right token, and it is not always the same string we use internally.
+    //
+    // `native.addressPrefix` is the synthetic id a native-coin finding is keyed by. Ethereum's
+    // is 'custom-eth-native-' and must stay exactly that: portfolio rows saved by earlier scans
+    // carry that id, and categorizeDiscoveredTokens matches on it. Change it and every saved
+    // native ETH row silently re-appears as "new".
+    const SCAN_EVM_CHAINS = {
+        ethereum: {
+            key: 'ethereum', label: 'Ethereum',
+            rpcUrl: () => EVM_RPC_URLS['ethereum'],
+            discovery: 'etherscan', etherscanChainId: 1,
+            dexscreenerChain: 'ethereum',
+            native: { symbol: 'ETH', name: 'Ethereum', decimals: 18, geckoId: 'ethereum', addressPrefix: 'custom-eth-native-' },
+        },
+        // Both of these settle in ETH, so the native asset is ETH rather than a chain-specific
+        // gas token — which is also why they share Ethereum's geckoId for the native price.
+        base: {
+            key: 'base', label: 'Base',
+            rpcUrl: () => EVM_RPC_URLS['base'],
+            discovery: 'alchemy', alchemyNetwork: 'base-mainnet',
+            dexscreenerChain: 'base',
+            native: { symbol: 'ETH', name: 'Ethereum', decimals: 18, geckoId: 'ethereum', addressPrefix: 'custom-base-native-' },
+        },
+        // No public RPC and no Etherscan coverage, so both the balance reads and the token
+        // discovery go through Alchemy.
+        robinhood: {
+            key: 'robinhood', label: 'Robinhood',
+            discovery: 'alchemy', alchemyNetwork: 'robinhood-mainnet',
+            dexscreenerChain: 'robinhood',
+            native: { symbol: 'ETH', name: 'Ethereum', decimals: 18, geckoId: 'ethereum', addressPrefix: 'custom-robinhood-native-' },
+        },
+    };
+    // One getTokenMetadata call each, so a wallet holding hundreds of dust tokens can't turn
+    // one scan into a thousand requests.
+    const SCAN_ALCHEMY_MAX_TOKENS = 80;
+
+    // Ethereum only by default — every extra chain is another full pass over every EVM wallet,
+    // so the user opts in. Matches how the NFT scan handles its chain picker.
+    let walletScanChains = { ethereum: true, base: false, robinhood: false };
+    function loadWalletScanChains() {
+        try {
+            const d = JSON.parse(localStorage.getItem(lsKey('walletScanChains')));
+            if (d && typeof d === 'object') Object.keys(SCAN_EVM_CHAINS).forEach(k => { walletScanChains[k] = !!d[k]; });
+        } catch (e) {}
+        if (!Object.keys(SCAN_EVM_CHAINS).some(k => walletScanChains[k])) walletScanChains.ethereum = true;
+    }
+    function saveWalletScanChains() {
+        try { localStorage.setItem(lsKey('walletScanChains'), JSON.stringify(walletScanChains)); } catch (e) {}
+    }
+    function activeWalletScanChains() {
+        return Object.keys(SCAN_EVM_CHAINS).filter(k => walletScanChains[k]);
+    }
+    function toggleWalletScanChain(key) {
+        walletScanChains[key] = !walletScanChains[key];
+        if (!activeWalletScanChains().length) { walletScanChains[key] = true; toast('At least one chain has to stay selected', 'warning'); }
+        saveWalletScanChains();
+        renderWalletScanChainPicker();
+    }
+
+    function renderWalletScanChainPicker() {
+        const wrap = document.getElementById('walletScanChainPicker');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        Object.keys(SCAN_EVM_CHAINS).forEach(k => {
+            const chain = SCAN_EVM_CHAINS[k];
+            const on = !!walletScanChains[k];
+            const needsKey = chain.discovery === 'alchemy' && !hasAlchemyKey();
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'nft-scan-view-btn' + (on ? ' active' : '');
+            if (needsKey) { b.style.opacity = '0.5'; }
+            b.textContent = (on ? '✓ ' : '') + chain.label;
+            b.title = needsKey
+                ? chain.label + ' needs an Alchemy key — set one in the NFT scan panel, or the built-in key'
+                : chain.discovery === 'alchemy'
+                    ? chain.label + ' — token balances via Alchemy, prices via DexScreener'
+                    : chain.label + ' — token history via Etherscan, prices via DexScreener';
+            b.onclick = () => toggleWalletScanChain(k);
+            wrap.appendChild(b);
+        });
+        // Solana is not in this table: it has its own discovery path and is always scanned when
+        // a Solana wallet is saved, so presenting it as a toggle here would be a lie.
+        const note = document.createElement('span');
+        note.style.cssText = 'font-size:0.65rem;color:#666;margin-left:4px';
+        note.textContent = wallets.some(w => w.chainType === 'solana') ? '+ Solana, always' : '';
+        wrap.appendChild(note);
+    }
+
     let walletScanState = {
         running: false,
         cancelled: false,
@@ -4839,7 +4947,7 @@ SOL,100</pre></div>
         const target = walletId ? wallets.filter(w => w.id === walletId) : wallets;
         if (target.length === 0) { toast('Wallet not found', 'warning'); return; }
 
-        walletScanState = { running: true, cancelled: false, findings: [], solanaSplFailed: false, scopeLabel: walletId ? target[0].label : null };
+        walletScanState = { running: true, cancelled: false, findings: [], solanaSplFailed: false, chainErrors: [], scopeLabel: walletId ? target[0].label : null };
         walletManagerReturnsToNftScan = false;  // moved on to a token scan; don't bounce back later
         closeModal('walletManagerModal');
         showModal('walletScanProgressModal');
@@ -4851,12 +4959,26 @@ SOL,100</pre></div>
             const solWallets = target.filter(w => w.chainType === 'solana');
             const allFindings = [];
 
-            for (let i = 0; i < evmWallets.length; i++) {
+            // Every selected chain is a full pass over every EVM wallet, which is why the
+            // picker defaults to Ethereum alone.
+            const chainKeys = activeWalletScanChains();
+            for (const chainKey of chainKeys) {
                 if (walletScanState.cancelled) break;
-                const w = evmWallets[i];
-                scanProgress('Scanning Ethereum wallets', '(' + (i+1) + '/' + evmWallets.length + ') ' + w.label + ' — listing tokens…');
-                const found = await discoverEthAssets(w);
-                allFindings.push(...found);
+                const chain = SCAN_EVM_CHAINS[chainKey];
+                for (let i = 0; i < evmWallets.length; i++) {
+                    if (walletScanState.cancelled) break;
+                    const w = evmWallets[i];
+                    scanProgress('Scanning ' + chain.label + ' wallets', '(' + (i+1) + '/' + evmWallets.length + ') ' + w.label + ' — listing tokens…');
+                    try {
+                        const found = await discoverEvmAssets(chain, w);
+                        allFindings.push(...found);
+                    } catch (e) {
+                        // One chain failing should never sink a multi-chain scan.
+                        console.warn('[Scan] ' + chain.label + ' failed for ' + w.label + ':', e.message);
+                        walletScanState.chainErrors.push(chain.label + ' — ' + (e.message || 'unavailable'));
+                        break;
+                    }
+                }
             }
             for (let i = 0; i < solWallets.length; i++) {
                 if (walletScanState.cancelled) break;
@@ -4890,30 +5012,59 @@ SOL,100</pre></div>
         }
     }
 
-    // --- ETH wallet discovery: native ETH + ERC-20 from tokentx ---
-    async function discoverEthAssets(wallet) {
-        const findings = [];
-        const ethRpc = EVM_RPC_URLS['ethereum'];
+    // The endpoint plain eth_* calls go to. A public RPC where we have one, Alchemy otherwise
+    // — Robinhood has no public endpoint, so it always takes the Alchemy branch.
+    function evmScanRpcUrl(chain) {
+        if (chain.rpcUrl) { const u = chain.rpcUrl(); if (u) return u; }
+        if (chain.alchemyNetwork && hasAlchemyKey()) return alchemyEvmRpcUrl(chain);
+        return null;
+    }
+    function alchemyEvmRpcUrl(chain) {
+        return 'https://' + chain.alchemyNetwork + '.g.alchemy.com/v2/' + encodeURIComponent(alchemyApiKey);
+    }
 
-        // 1) Native ETH balance
+    // --- EVM wallet discovery: native coin + ERC-20s ---
+    // Chain-driven: `chain.discovery` picks between the Etherscan history walk and Alchemy's
+    // one-shot balance call. See SCAN_EVM_CHAINS for why both paths have to exist.
+    async function discoverEvmAssets(chain, wallet) {
+        const findings = [];
+        const rpc = evmScanRpcUrl(chain);
+        if (!rpc) {
+            console.warn('[Scan] no RPC available for ' + chain.label);
+            return findings;
+        }
+
+        // 1) Native balance
         try {
-            const raw = await fetchEvmNativeBalance(wallet.address, ethRpc);
-            const amt = Number(raw) / 1e18;
+            const raw = await fetchEvmNativeBalance(wallet.address, rpc);
+            const amt = Number(raw) / Math.pow(10, chain.native.decimals);
             if (amt > 0) {
                 findings.push({
                     walletLabel: wallet.label, walletAddress: wallet.address,
-                    source: 'ethereum', chainId: 'ethereum',
-                    address: 'custom-eth-native-' + wallet.address.slice(2, 8).toLowerCase(),
+                    source: chain.key, chainId: chain.key,
+                    address: chain.native.addressPrefix + wallet.address.slice(2, 8).toLowerCase(),
                     isNative: true,
-                    symbol: 'ETH', name: 'Ethereum', decimals: 18, balance: amt,
+                    symbol: chain.native.symbol, name: chain.native.name,
+                    decimals: chain.native.decimals, balance: amt,
                 });
             }
-        } catch (e) { console.warn('[Scan] native ETH for ' + wallet.label + ' failed:', e.message); }
+        } catch (e) { console.warn('[Scan] native ' + chain.label + ' for ' + wallet.label + ' failed:', e.message); }
 
-        // 2) ERC-20s via Etherscan V2 tokentx (chainid=1, free tier)
+        // 2) ERC-20s
+        const tokens = chain.discovery === 'alchemy'
+            ? await discoverAlchemyTokens(chain, wallet)
+            : await discoverEtherscanTokens(chain, wallet, rpc);
+        findings.push(...tokens);
+        return findings;
+    }
+
+    // Etherscan path: transfer history gives the candidate contracts (with symbol/name/decimals
+    // for free), then one balanceOf each for the current amount.
+    async function discoverEtherscanTokens(chain, wallet, rpc) {
+        const findings = [];
         let txRows = [];
         try {
-            const url = ETHERSCAN_V2_BASE + '?chainid=1&module=account&action=tokentx&address=' + wallet.address +
+            const url = ETHERSCAN_V2_BASE + '?chainid=' + chain.etherscanChainId + '&module=account&action=tokentx&address=' + wallet.address +
                 '&startblock=0&endblock=99999999&page=1&offset=10000&sort=desc&apikey=' + ETHERSCAN_API_KEY;
             const r = await fetch(url);
             const d = await r.json();
@@ -4934,19 +5085,18 @@ SOL,100</pre></div>
             });
         }
 
-        // 3) For each unique contract, fetch current balance via public RPC
         let idx = 0;
         for (const meta of seen.values()) {
             if (walletScanState.cancelled) break;
             idx++;
-            scanProgress('Reading balances on Ethereum', wallet.label + ': ' + idx + '/' + seen.size + ' (' + (meta.symbol || meta.address.slice(0, 8)) + ')');
+            scanProgress('Reading balances on ' + chain.label, wallet.label + ': ' + idx + '/' + seen.size + ' (' + (meta.symbol || meta.address.slice(0, 8)) + ')');
             try {
-                const raw = await fetchEvmTokenBalance(wallet.address, meta.address, ethRpc);
+                const raw = await fetchEvmTokenBalance(wallet.address, meta.address, rpc);
                 const amt = Number(raw) / Math.pow(10, meta.decimals || 18);
                 if (amt > 0) {
                     findings.push({
                         walletLabel: wallet.label, walletAddress: wallet.address,
-                        source: 'ethereum', chainId: 'ethereum',
+                        source: chain.key, chainId: chain.key,
                         address: meta.address, isNative: false,
                         symbol: meta.symbol, name: meta.name || meta.symbol, decimals: meta.decimals,
                         balance: amt,
@@ -4956,6 +5106,75 @@ SOL,100</pre></div>
                 console.warn('[Scan] balanceOf ' + meta.symbol + ' failed:', e.message);
             }
             await delay(120); // be polite to the public RPC
+        }
+        return findings;
+    }
+
+    // Alchemy path: one paged call returns every ERC-20 balance the wallet has ever held, so
+    // the zero balances are filtered out *before* spending a metadata call on each survivor.
+    // That ordering is what keeps this cheap — the raw list is routinely hundreds of entries
+    // and the non-zero remainder is usually a handful.
+    async function discoverAlchemyTokens(chain, wallet) {
+        const findings = [];
+        const url = alchemyEvmRpcUrl(chain);
+        const held = [];
+        let pageKey = null;
+        let page = 0;
+
+        do {
+            if (walletScanState.cancelled) return findings;
+            const params = pageKey ? [wallet.address, 'erc20', { pageKey }] : [wallet.address, 'erc20'];
+            let res;
+            try {
+                res = await evmRpcCall(url, 'alchemy_getTokenBalances', params);
+            } catch (e) {
+                console.warn('[Scan] ' + chain.label + ' getTokenBalances failed:', e.message);
+                return findings;
+            }
+            ((res && res.tokenBalances) || []).forEach(t => {
+                const raw = t.tokenBalance;
+                // Alchemy returns a zero-padded hex string for every token ever touched.
+                if (!raw || t.error) return;
+                let v;
+                try { v = BigInt(raw); } catch (e) { return; }
+                if (v === 0n) return;
+                held.push({ address: t.contractAddress, raw: v });
+            });
+            pageKey = res && res.pageKey ? res.pageKey : null;
+            page++;
+            scanProgress('Reading balances on ' + chain.label, wallet.label + ': ' + held.length + ' held (page ' + page + ')');
+        } while (pageKey && page < 20);
+
+        const targets = held.slice(0, SCAN_ALCHEMY_MAX_TOKENS);
+        if (held.length > targets.length) {
+            console.warn('[Scan] ' + chain.label + ': ' + held.length + ' tokens held, reading metadata for the first ' + targets.length);
+        }
+
+        for (let i = 0; i < targets.length; i++) {
+            if (walletScanState.cancelled) break;
+            const t = targets[i];
+            scanProgress('Reading balances on ' + chain.label, wallet.label + ': ' + (i + 1) + '/' + targets.length + ' — reading token details');
+            let meta = null;
+            try {
+                meta = await evmRpcCall(url, 'alchemy_getTokenMetadata', [t.address]);
+            } catch (e) {
+                console.warn('[Scan] ' + chain.label + ' metadata failed for ' + t.address + ':', e.message);
+            }
+            // decimals is the one field we genuinely cannot proceed without — the raw balance
+            // is meaningless without it, and a wrong guess is worse than skipping the token.
+            const decimals = meta && Number.isInteger(meta.decimals) ? meta.decimals : null;
+            if (decimals === null) continue;
+            const amt = Number(t.raw) / Math.pow(10, decimals);
+            if (!(amt > 0)) continue;
+            findings.push({
+                walletLabel: wallet.label, walletAddress: wallet.address,
+                source: chain.key, chainId: chain.key,
+                address: t.address, isNative: false,
+                symbol: (meta && meta.symbol) || '', name: (meta && meta.name) || (meta && meta.symbol) || '',
+                decimals, balance: amt,
+                logo: (meta && meta.logo) || undefined,
+            });
+            await delay(90);
         }
         return findings;
     }
@@ -5038,8 +5257,12 @@ SOL,100</pre></div>
                 const pairs = data?.pairs || [];
                 for (const f of chunk) {
                     if (f.isNative) { await fillNativePrice(f); continue; }
-                    // Find best pair: matches our chain (ethereum/solana) and highest liquidity
-                    const matchChain = f.source === 'solana' ? 'solana' : 'ethereum';
+                    // Find best pair: matches our chain and highest liquidity. The slug is the
+                    // one DexScreener labels pairs with, which is not always our internal key —
+                    // getting it wrong silently prices a token off the wrong chain's pool.
+                    const matchChain = f.source === 'solana'
+                        ? 'solana'
+                        : ((SCAN_EVM_CHAINS[f.source] || {}).dexscreenerChain || 'ethereum');
                     const candidates = pairs.filter(p => p.chainId === matchChain && (p.baseToken?.address || '').toLowerCase() === f.address.toLowerCase());
                     if (candidates.length > 0) {
                         const best = candidates.reduce((a, b) => (b.liquidity?.usd || 0) > (a.liquidity?.usd || 0) ? b : a);
@@ -5067,7 +5290,11 @@ SOL,100</pre></div>
     // Fill price for native ETH/SOL using a known CoinGecko id
     async function fillNativePrice(f) {
         try {
-            const geckoId = f.source === 'ethereum' ? 'ethereum' : 'solana';
+            // L2s that settle in ETH price their native coin off ethereum, not off a coin
+            // named after the chain — SCAN_EVM_CHAINS carries the right id per chain.
+            const geckoId = f.source === 'solana'
+                ? 'solana'
+                : (((SCAN_EVM_CHAINS[f.source] || {}).native || {}).geckoId || 'ethereum');
             const d = await fetchCoinGeckoById(geckoId);
             f.price = d.price || 0;
             f.marketCap = d.marketCap || 0;
@@ -5120,9 +5347,15 @@ SOL,100</pre></div>
         const scope = walletScanState.scopeLabel
             ? 'Scanned 1 wallet (' + walletScanState.scopeLabel + ')'
             : 'Scanned ' + wallets.length + ' wallet' + (wallets.length !== 1 ? 's' : '');
+        const chains = activeWalletScanChains().map(k => SCAN_EVM_CHAINS[k].label).join(', ');
+        // A chain that failed has to be visible here. Otherwise its tokens are simply absent
+        // and the scan looks like it ran clean.
+        const failed = walletScanState.chainErrors || [];
         summaryEl.textContent = scope +
+            ' across ' + chains +
             ' · ' + newOnes.length + ' new · ' + diffs.length + ' mismatch · ' + matches.length + ' matched' +
-            (hiddenCount > 0 ? ' · ' + hiddenCount + ' hidden as dust' : '');
+            (hiddenCount > 0 ? ' · ' + hiddenCount + ' hidden as dust' : '') +
+            (failed.length ? ' · skipped ' + failed.join('; ') : '');
 
         const sections = [];
         if (newOnes.length > 0) sections.push(renderScanSection('🆕 New Tokens', '#10b981', 'rgba(16,185,129,0.08)', newOnes, 'new'));
