@@ -1124,7 +1124,7 @@
             <div class="total-value" id="totalValue">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="total-value-label" id="totalLabel">Total Portfolio Value</div>
-                    <button class="sort-btn currency-btn" id="cadBtn" onclick="toggleCurrency()" title="Toggle USD / CAD" style="padding:4px 10px; font-size:0.7rem; border-radius:8px;">CAD</button>
+                    <button class="sort-btn currency-btn" id="cadBtn" onclick="toggleCurrency()" title="Cycle USD / CAD / ETH" style="padding:4px 10px; font-size:0.7rem; border-radius:8px;">CAD</button>
                 </div>
                 <div class="total-value-amount" id="totalAmount">$0</div>
                 <div id="totalBreakdown" style="display:none; font-size:0.63rem; color:#555; margin-top:3px; letter-spacing:0.2px;"></div>
@@ -2230,6 +2230,7 @@ SOL,100</pre></div>
     let sunDragLastY = 0;
     let currencyMode = localStorage.getItem(lsKey('currencyMode')) || 'usd'; // persisted across reloads
     let cadRate = null; // USD→CAD exchange rate, fetched once on load
+    let ethRate = null; // USD per 1 ETH, for denominating the portfolio in ETH
     let catSortMode = localStorage.getItem(lsKey('catSortMode')) || 'value'; // 'value' | 'alpha' — category bubble sort order
     let catValueFilterMode = localStorage.getItem(lsKey('catValueFilterMode')) || 'off'; // 'off' | '<' | '>' | '↔'
     let catValueFilterAmt = parseFloat(localStorage.getItem(lsKey('catValueFilterAmt'))) || 0;
@@ -2325,12 +2326,59 @@ SOL,100</pre></div>
     // UTILITIES
     // ============================================================
     function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
-    function toCur(n) { return currencyMode === 'cad' && cadRate ? n * cadRate : n; } // convert USD→display currency
-    function curSym() { return currencyMode === 'cad' ? 'C$' : '$'; }
-    function formatUSD(n) { const v = toCur(n); return curSym() + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    // A rate of null means "not loaded yet", and every conversion falls back to USD rather
+    // than showing a number that is silently wrong by a factor of thousands.
+    function curRate() {
+        if (currencyMode === 'cad') return cadRate;
+        if (currencyMode === 'eth') return ethRate ? (1 / ethRate) : null;   // ethRate is USD per ETH
+        return 1;
+    }
+    function toCur(n) { const r = curRate(); return r ? n * r : n; } // convert USD→display currency
+    function curSym() { return currencyMode === 'cad' ? 'C$' : currencyMode === 'eth' && ethRate ? 'Ξ' : '$'; }
+    // Is the display currency one where whole numbers are meaningless? A $400 NFT is 0.15 ETH,
+    // and every "round to the nearest unit" in this file would render that as 0.
+    function curIsFractional() { return currencyMode === 'eth' && !!ethRate; }
+
+    // Decimals appropriate to the magnitude. Dollars want none for a total and two for a
+    // price; ETH needs enough that small holdings do not all collapse to the same figure.
+    function curDecimals(v, forceCents) {
+        if (!curIsFractional()) return forceCents ? 2 : 0;
+        const a = Math.abs(v);
+        if (a === 0) return 2;
+        if (a < 0.01) return 5;
+        if (a < 1) return 4;
+        if (a < 100) return 3;
+        return 2;
+    }
+    // The single "show this USD amount in the display currency" helper. Replaces the
+    // curSym() + Math.round(toCur(x)) pattern that was repeated across the file and which
+    // rounds every sub-unit ETH value to zero.
+    function fmtCur(n, forceCents) {
+        const v = toCur(n || 0);
+        const d = curDecimals(v, forceCents);
+        // Dollars pin the decimals so cents line up. ETH only caps them: 0.16 ETH reads as
+        // Ξ0.16, not Ξ0.1600, and a round 20 reads as Ξ20 rather than Ξ20.000.
+        const min = curIsFractional() ? 0 : d;
+        return curSym() + v.toLocaleString(undefined, { minimumFractionDigits: min, maximumFractionDigits: d });
+    }
+    // Display currency → USD, for values typed into a field while a currency is selected.
+    function fromCur(v) { const r = curRate(); return r ? v / r : v; }
+    // Prefill for a number input: a bare Math.round would put 0 in the box for any NFT worth
+    // under half an ETH, so the user would be editing a number that was never their value.
+    function curEditValue(n) {
+        const v = toCur(n || 0);
+        return curIsFractional() ? Number(v.toFixed(curDecimals(v))) : Math.round(v);
+    }
+    function formatUSD(n) { return fmtCur(n, true); }
     // Whole-dollar formatter for total portfolio value displays — no cents/decimals.
-    function formatUSDWhole(n) { const v = toCur(n); return curSym() + Math.round(v).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
-    function formatCompact(n) { const v = toCur(n); const s = curSym(); if (v >= 1e9) return s + (v/1e9).toFixed(2) + 'B'; if (v >= 1e6) return s + (v/1e6).toFixed(2) + 'M'; if (v >= 1e3) return s + (v/1e3).toFixed(1) + 'K'; return s + v.toFixed(0); }
+    function formatUSDWhole(n) { return fmtCur(n); }
+    function formatCompact(n) {
+        const v = toCur(n); const s = curSym();
+        if (v >= 1e9) return s + (v/1e9).toFixed(2) + 'B';
+        if (v >= 1e6) return s + (v/1e6).toFixed(2) + 'M';
+        if (v >= 1e3) return s + (v/1e3).toFixed(1) + 'K';
+        return s + v.toFixed(curDecimals(v));
+    }
     function formatCatName(n) { return CHAIN_NAME_MAP[n] || n.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); }
     function timeAgo(d) { const s = Math.floor((Date.now() - d) / 1000); if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s/60) + 'm ago'; if (s < 86400) return Math.floor(s/3600) + 'h ago'; if (s < 604800) return Math.floor(s/86400) + 'd ago'; return new Date(d).toLocaleDateString(); }
     function detectPlatform(token) { return DEXSCREENER_CHAIN_MAP[token.chainId] || token.chainId || null; }
@@ -2831,12 +2879,12 @@ SOL,100</pre></div>
         syncNftPlayTagUI();
         loadWallets();
         fetchCADRate();
+        fetchEthRate();
         fetchGlobalStats();
         fetchBgChartData();
         fetchFearGreed();
-        // Sync CAD button to restored currencyMode (before portfolio loads)
-        const cadBtn = document.getElementById('cadBtn');
-        if (cadBtn) { cadBtn.textContent = currencyMode === 'cad' ? 'CAD' : 'USD'; cadBtn.classList.toggle('active', currencyMode === 'cad'); }
+        // Sync the currency button to the restored currencyMode (before portfolio loads)
+        syncCurrencyBtn();
 
         // Before the first render, so the restored view is what gets drawn rather than orbit
         // being drawn and then replaced.
@@ -3077,14 +3125,45 @@ SOL,100</pre></div>
         }
     }
 
+    // USD per ETH, so the portfolio can be denominated in ETH. Shares the NFT floor code's
+    // cached quote rather than opening a second CoinGecko call for the same number.
+    async function fetchEthRate() {
+        try {
+            const usd = await ethUsdCached();
+            if (usd > 0) {
+                ethRate = usd;
+                console.log('ETH rate loaded: 1 ETH = $' + ethRate);
+                if (currencyMode === 'eth') refreshAll();   // values were showing as USD until now
+                syncCurrencyBtn();
+            }
+        } catch (e) { console.warn('ETH rate fetch failed:', e.message); }
+    }
+
+    // usd → cad → eth → usd. A mode whose rate hasn't arrived is skipped rather than entered,
+    // since entering it would silently show USD figures under the wrong symbol.
     function toggleCurrency() {
-        if (!cadRate) { toast('CAD exchange rate not available', 'warning'); return; }
-        currencyMode = currencyMode === 'usd' ? 'cad' : 'usd';
+        const order = ['usd', 'cad', 'eth'];
+        const rateFor = m => m === 'usd' ? 1 : m === 'cad' ? cadRate : ethRate;
+        let next = currencyMode, hops = 0;
+        do {
+            next = order[(order.indexOf(next) + 1) % order.length];
+            hops++;
+        } while (!rateFor(next) && hops < order.length);
+        if (!rateFor(next)) { toast('No exchange rates available yet', 'warning'); return; }
+        if (next === currencyMode) { toast('No other currency is available yet', 'info'); return; }
+        currencyMode = next;
         localStorage.setItem(lsKey('currencyMode'), currencyMode);
-        const btn = document.getElementById('cadBtn');
-        btn.textContent = currencyMode === 'cad' ? 'CAD' : 'USD';
-        btn.classList.toggle('active', currencyMode === 'cad');
+        syncCurrencyBtn();
         refreshAll();
+    }
+
+    function syncCurrencyBtn() {
+        const btn = document.getElementById('cadBtn');
+        if (!btn) return;
+        btn.textContent = currencyMode === 'cad' ? 'CAD' : currencyMode === 'eth' ? 'ETH' : 'USD';
+        btn.classList.toggle('active', currencyMode !== 'usd');
+        btn.title = 'Showing ' + btn.textContent + ' — click to cycle USD / CAD / ETH' +
+            (ethRate ? ' · 1 ETH = $' + Math.round(ethRate).toLocaleString() : '');
     }
 
     // ============================================================
@@ -3309,7 +3388,7 @@ SOL,100</pre></div>
             const t = portfolio.find(x => x.id === node.dataset.tokenId);
             if (!t) return;
             const val = node.querySelector('.node-value');
-            if (val) val.textContent = curSym() + Math.round(toCur(t.value)).toLocaleString();
+            if (val) val.textContent = fmtCur(t.value);
             const ch = node.querySelector('.node-change');
             if (ch && t.priceChange24h != null) {
                 const v = parseFloat(t.priceChange24h);
@@ -7470,7 +7549,7 @@ SOL,100</pre></div>
 
         // Labels
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.symbol; node.appendChild(lbl);
-        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
+        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = fmtCur(token.value); node.appendChild(val);
         const amtSuffix = token.assetType === 'metal' ? ' oz' : token.assetType === 'stock' ? ' shares' : '';
         const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Math.ceil(Number(token.amount) || 0).toLocaleString() + amtSuffix; node.appendChild(amt);
 
@@ -7545,7 +7624,7 @@ SOL,100</pre></div>
 
         // Labels
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.symbol; node.appendChild(lbl);
-        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
+        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = fmtCur(token.value); node.appendChild(val);
         const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Math.ceil(Number(token.amount) || 0).toLocaleString() + ' shares'; node.appendChild(amt);
 
         if (token.marketCap > 0) {
@@ -7680,7 +7759,7 @@ SOL,100</pre></div>
 
         // Labels
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.symbol; node.appendChild(lbl);
-        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
+        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = fmtCur(token.value); node.appendChild(val);
         const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = Math.ceil(Number(token.amount) || 0).toLocaleString() + ' oz'; node.appendChild(amt);
 
         // Events
@@ -7773,7 +7852,7 @@ SOL,100</pre></div>
 
         // Labels
         const lbl = document.createElement('div'); lbl.className = 'node-label'; lbl.textContent = token.name; node.appendChild(lbl);
-        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = curSym() + Math.round(toCur(token.value)).toLocaleString(); node.appendChild(val);
+        const val = document.createElement('div'); val.className = 'node-value'; val.textContent = fmtCur(token.value); node.appendChild(val);
         const nativeSym = isCAD ? 'C$' : '$';
         const amt = document.createElement('div'); amt.className = 'node-amount'; amt.textContent = nativeSym + Math.ceil(Number(token.amount) || 0).toLocaleString(); node.appendChild(amt);
 
@@ -8304,7 +8383,7 @@ SOL,100</pre></div>
         const el = document.getElementById('nftEstValueDisplay');
         if (!el) return;
         const total = sumNftValues();
-        const valStr = total > 0 ? curSym() + Math.round(toCur(total)).toLocaleString() : '—';
+        const valStr = total > 0 ? fmtCur(total) : '—';
         el.innerHTML = '<span style="color:#888;font-style:italic" title="Sum of every NFT value — click a value under an NFT to change it">' + valStr + '</span>';
     }
 
@@ -8313,7 +8392,7 @@ SOL,100</pre></div>
         if (!el) return;
         const val = getNftValue(idx);
         if (val > 0) {
-            el.textContent = curSym() + Math.round(toCur(val)).toLocaleString();
+            el.textContent = fmtCur(val);
             el.classList.add('has-value');
         } else {
             el.textContent = 'Click to set value';
@@ -8325,7 +8404,7 @@ SOL,100</pre></div>
         const el = document.getElementById(elId);
         if (!el) return;
         const currentVal = getNftValue(idx);
-        const currentDisplay = currentVal > 0 ? Math.round(toCur(currentVal)) : '';
+        const currentDisplay = currentVal > 0 ? curEditValue(currentVal) : '';
         el.classList.remove('empty');
         el.innerHTML = '<input type="number" id="indNftValInput" step="any" min="0" placeholder="Value" style="width:80px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:2px 6px;color:#fff;font-size:0.75rem;font-style:italic;text-align:center" value="' + currentDisplay + '">';
         const input = document.getElementById('indNftValInput');
@@ -8346,7 +8425,7 @@ SOL,100</pre></div>
         const rawInput = input.value;
         input.id = ''; // prevent double-fire from blur after enter
         let val = parseFloat(rawInput) || 0;
-        if (val > 0 && currencyMode === 'cad' && cadRate) val = val / cadRate;
+        if (val > 0) val = fromCur(val);
         val = Math.max(0, val);
         setNftValue(idx, val); // calls recalcNftTotal -> updateNftValueDisplay + updateTotalValue + updateStats
         updateIndividualNftValueOverlay(idx, elId);
@@ -8370,7 +8449,7 @@ SOL,100</pre></div>
         if (siblings.length === 0) return;
 
         const name = meta.collection || 'this collection';
-        const shown = curSym() + Math.round(toCur(val)).toLocaleString();
+        const shown = fmtCur(val);
         const ok = confirm('Apply ' + shown + ' to all ' + (siblings.length + 1) + ' NFTs in "' + name + '"?\n\n' +
             'OK — set every NFT in this collection to ' + shown + '.\n' +
             'Cancel — only this one keeps the new value.');
@@ -9070,7 +9149,7 @@ SOL,100</pre></div>
         const colls = galleryCollections(scoped);
         sel.innerHTML = '<option value="">All collections (' + scoped.length + ')</option>' +
             colls.map(([c, n, v]) => '<option value="' + escapeHtml(c.toLowerCase()) + '">' + escapeHtml(c) + ' (' + n +
-                (nftCollSort === 'value' && v > 0 ? ' · ' + curSym() + Math.round(toCur(v)).toLocaleString() : '') +
+                (nftCollSort === 'value' && v > 0 ? ' · ' + fmtCur(v) : '') +
                 ')</option>').join('');
         // Keep the current filter if that collection still exists after a delete.
         sel.value = colls.some(([c]) => c.toLowerCase() === keep) ? keep : '';
@@ -9208,7 +9287,7 @@ SOL,100</pre></div>
 
             const cVal = document.createElement('td');
             cVal.className = 'nft-table-val' + (r.value > 0 ? '' : ' none');
-            cVal.textContent = r.value > 0 ? curSym() + Math.round(toCur(r.value)).toLocaleString() : 'not priced';
+            cVal.textContent = r.value > 0 ? fmtCur(r.value) : 'not priced';
             // The Auto column next door already flags a row whose price changes on its own,
             // so a second clock here was just noise.
             const handSet = isNftValueManual(r.url);
@@ -9237,7 +9316,7 @@ SOL,100</pre></div>
                     if (!(v > 0)) { toast('Set this NFT\'s value first', 'warning'); return; }
                     const { n } = applyValueToCollection(r.idx, v);
                     renderReorderTable();
-                    toast('Applied ' + curSym() + Math.round(toCur(v)).toLocaleString() + ' to ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' in ' + r.collection, 'success');
+                    toast('Applied ' + fmtCur(v) + ' to ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' in ' + r.collection, 'success');
                 });
                 cAct.appendChild(b);
             }
@@ -9304,8 +9383,8 @@ SOL,100</pre></div>
             foot.innerHTML =
                 '<span>Showing <strong style="color:#ccd">' + rows.length + '</strong> of ' + nftGallery.length +
                     (why.length ? ' <span style="color:#00d4ff">· ' + escapeHtml(why.join(' + ')) + '</span>' : '') + '</span>' +
-                '<span>Listed value <strong style="color:#10b981">' + curSym() + Math.round(toCur(shownVal)).toLocaleString() + '</strong></span>' +
-                '<span>Gallery total <strong style="color:#ccd">' + curSym() + Math.round(toCur(sumNftValues())).toLocaleString() + '</strong></span>' +
+                '<span>Listed value <strong style="color:#10b981">' + fmtCur(shownVal) + '</strong></span>' +
+                '<span>Gallery total <strong style="color:#ccd">' + fmtCur(sumNftValues()) + '</strong></span>' +
                 (unpriced > 0
                     ? '<span style="color:#f59e0b">' + unpriced + ' unpriced in the gallery</span>'
                     : '<span style="color:#10b981">Everything is priced</span>') +
@@ -9530,7 +9609,7 @@ SOL,100</pre></div>
         const cur = document.createElement('div');
         cur.className = 'nft-tag-row auto';
         cur.innerHTML = '<span class="nft-tag-check"></span><span>' +
-            (value > 0 ? curSym() + Math.round(toCur(value)).toLocaleString() : 'not priced') +
+            (value > 0 ? fmtCur(value) : 'not priced') +
             '</span><span class="nft-tag-note">' + (inCollection > 1 ? inCollection + ' in set' : '1 NFT') + '</span>';
         menu.appendChild(cur);
 
@@ -9700,7 +9779,7 @@ SOL,100</pre></div>
         if (!cell || cell.querySelector('input')) return;
         const cur = nftValues[nftGallery[idx]] || 0;
 
-        cell.innerHTML = '<input type="number" step="any" min="0" placeholder="0" value="' + (cur > 0 ? Math.round(toCur(cur)) : '') + '">';
+        cell.innerHTML = '<input type="number" step="any" min="0" placeholder="0" value="' + (cur > 0 ? curEditValue(cur) : '') + '">';
         const input = cell.querySelector('input');
         input.focus();
         input.select();
@@ -9710,7 +9789,7 @@ SOL,100</pre></div>
             done = true;
             if (save) {
                 let v = parseFloat(input.value) || 0;
-                if (v > 0 && currencyMode === 'cad' && cadRate) v = v / cadRate;  // stored in USD
+                if (v > 0) v = fromCur(v);  // stored in USD
                 setNftValue(idx, Math.max(0, v));
                 // Keep the row on screen so "→ all" is still reachable for it.
                 if (v > 0) nftTableJustPriced.add(nftGallery[idx]);
@@ -10842,10 +10921,10 @@ SOL,100</pre></div>
         const { n, skipped } = applyValueToCollection(idx, usd, { fromFloor: true });
         if (!quiet) {
             if (n === 0 && skipped > 0) {
-                toast(collection + ' floor is ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
+                toast(collection + ' floor is ' + fmtCur(usd) +
                       ', but every NFT in it has a price you set by hand — none were changed', 'info');
             } else {
-                toast('Floor updated: ' + collection + ' → ' + curSym() + Math.round(toCur(usd)).toLocaleString() +
+                toast('Floor updated: ' + collection + ' → ' + fmtCur(usd) +
                       ' across ' + n + ' NFT' + (n !== 1 ? 's' : '') +
                       (skipped > 0 ? ' · ' + skipped + ' kept (set by hand)' : ''), 'success');
             }
@@ -11487,7 +11566,7 @@ SOL,100</pre></div>
             const floor = document.createElement('div');
             if (r.floorUsd > 0) {
                 floor.className = 'nft-scan-floor' + (r.floorManual ? ' manual' : '');
-                floor.textContent = (r.floorManual ? 'Set ' : 'Floor ') + curSym() + Math.round(toCur(r.floorUsd)).toLocaleString();
+                floor.textContent = (r.floorManual ? 'Set ' : 'Floor ') + fmtCur(r.floorUsd);
                 floor.title = 'Click to set a value for this whole collection';
             } else {
                 floor.className = 'nft-scan-floor none';
@@ -11559,7 +11638,7 @@ SOL,100</pre></div>
         const slot = card.querySelector('.nft-scan-floor');
         if (!slot || card.querySelector('.nft-scan-floor-input')) return;
         const r = nftScanState.results[idx];
-        const current = r.floorUsd > 0 ? Math.round(toCur(r.floorUsd)) : '';
+        const current = r.floorUsd > 0 ? curEditValue(r.floorUsd) : '';
 
         slot.innerHTML = '<input type="number" class="nft-scan-floor-input" step="any" min="0" placeholder="Value" value="' + current + '">';
         const input = slot.querySelector('.nft-scan-floor-input');
@@ -11586,7 +11665,7 @@ SOL,100</pre></div>
         const r = nftScanState.results[idx];
         if (!r) return;
         let val = parseFloat(raw) || 0;
-        if (val > 0 && currencyMode === 'cad' && cadRate) val = val / cadRate; // stored in USD
+        if (val > 0) val = fromCur(val); // stored in USD
         val = Math.max(0, val);
 
         const ck = collectionKey(r.chain, r.contract);
@@ -11602,7 +11681,7 @@ SOL,100</pre></div>
         if (val > 0) nftFloorCache[String(r.contract).toLowerCase()] = val;
         classifyNftScanSpam(nftScanState.results);
         renderNftScanResults();
-        if (val > 0) toast('Set ' + curSym() + Math.round(toCur(val)).toLocaleString() + ' on ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' in ' + (r.collection || 'this collection'), 'success');
+        if (val > 0) toast('Set ' + fmtCur(val) + ' on ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' in ' + (r.collection || 'this collection'), 'success');
         else toast('Cleared the value for ' + (r.collection || 'this collection'), 'info');
     }
 
