@@ -1669,16 +1669,16 @@
     <div class="modal-overlay" id="addNFTModal">
         <div class="modal">
             <div class="modal-title">🖼️ Add NFT</div>
-            <div class="modal-subtitle">Paste image URL from OpenSea, Magic Eden, etc.</div>
-            <div class="modal-field"><label class="input-label">Image URL</label><input type="text" id="nftUrlInput" placeholder="https://..." style="width:100%"><div class="modal-hint">Right-click NFT image → Copy Image Address</div></div>
+            <div class="modal-subtitle">Paste the NFT's OpenSea link and its artwork is fetched for you — or paste an image URL directly.</div>
+            <div class="modal-field"><label class="input-label">Image URL <span style="color:#666;font-weight:400">— optional if you paste an OpenSea link below</span></label><input type="text" id="nftUrlInput" placeholder="https://..." style="width:100%"><div class="modal-hint">Right-click NFT image → Copy Image Address</div></div>
             <!-- Same two fields the list view's artwork modal has. Without them a hand-added
                  NFT has no identity and lands in "Added manually" forever, which is what
                  happens to every NFT on a chain the scan cannot reach. -->
-            <div class="modal-field"><label class="input-label">OpenSea link <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddOsInput" placeholder="https://opensea.io/item/ink/0x…/352" style="width:100%" autocomplete="off" spellcheck="false"><div class="modal-hint">The individual NFT's page, <strong style="color:#8a8a99">not</strong> the collection's — it must end in a token number. That gives it a contract and token ID, so it prices and groups like a scanned NFT.</div></div>
+            <div class="modal-field"><label class="input-label">OpenSea link <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddOsInput" placeholder="https://opensea.io/item/ink/0x…/352" style="width:100%" autocomplete="off" spellcheck="false"><div class="modal-hint">The individual NFT's page, <strong style="color:#8a8a99">not</strong> the collection's — it must end in a token number. Its artwork, collection name, contract and token ID are all read from it.</div></div>
             <div class="modal-field"><label class="input-label">Collection <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddCollInput" placeholder="e.g. Bored Ape Yacht Club" style="width:100%" maxlength="60" autocomplete="off"><div class="modal-hint">Leave blank and it files under “Added manually”. Match an existing collection and it joins it.</div></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeModal('addNFTModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="addNFT()">Add to Gallery</button>
+                <button class="btn btn-primary" id="addNftBtn" onclick="addNFT()">Add to Gallery</button>
             </div>
 
             <!-- Second path: scan saved wallets for on-chain NFTs -->
@@ -8353,20 +8353,23 @@ SOL,100</pre></div>
     // ============================================================
     // NFT GALLERY
     // ============================================================
-    function addNFT() {
-        const url = document.getElementById('nftUrlInput').value.trim();
-        const os = (document.getElementById('nftAddOsInput') || {}).value?.trim() || '';
+    let addNftBusy = false;
+
+    async function addNFT() {
+        if (addNftBusy) return;
+        let url = document.getElementById('nftUrlInput').value.trim();
+        const os = ((document.getElementById('nftAddOsInput') || {}).value || '').trim();
         let coll = ((document.getElementById('nftAddCollInput') || {}).value || '').trim();
-        if (!url) { alert('Enter an image URL'); return; }
-        try { new URL(url); } catch { alert('Invalid URL'); return; }
+        if (!url && !os) { alert('Paste an image URL, or an OpenSea link to the NFT'); return; }
+        if (url) { try { new URL(url); } catch { alert('Invalid URL'); return; } }
         if (os && !/^https?:\/\/(www\.)?opensea\.io\//i.test(os)) { toast('That does not look like an OpenSea link', 'warning'); return; }
-        if (nftGallery.includes(url)) { toast('That image is already in the gallery', 'warning'); return; }
+        if (url && nftGallery.includes(url)) { toast('That image is already in the gallery', 'warning'); return; }
 
         const meta = {};
         const notes = [];
+        const parsed = os ? parseOpenseaUrl(os) : null;
         if (os) {
             meta.openseaUrl = os;
-            const parsed = parseOpenseaUrl(os);
             if (parsed) {
                 meta.contract = parsed.contract;
                 meta.tokenId = parsed.tokenId;
@@ -8380,6 +8383,38 @@ SOL,100</pre></div>
                 notes.push('link saved, but no contract could be read from it');
             }
         }
+
+        // No image given, but we know what the NFT is — go and get its artwork rather than
+        // making the user find a URL for something we can already identify.
+        if (!url && parsed) {
+            const btn = document.getElementById('addNftBtn');
+            const was = btn ? btn.textContent : '';
+            addNftBusy = true;
+            if (btn) { btn.textContent = 'Finding artwork…'; btn.disabled = true; }
+            try {
+                const art = await lookupNftArtwork(meta.chain, meta.contract, meta.tokenId);
+                if (art.candidates.length) {
+                    meta.imageCandidates = art.candidates.slice(0, 8);
+                    url = art.candidates[0];
+                    notes.push('artwork found');
+                }
+                if (!coll && art.collection) { coll = art.collection; notes.push('collection read as ' + art.collection); }
+            } finally {
+                addNftBusy = false;
+                if (btn) { btn.textContent = was; btn.disabled = false; }
+            }
+            if (url && nftGallery.includes(url)) { toast('That NFT is already in the gallery', 'warning'); return; }
+        }
+
+        // Still nothing to show: keep the NFT rather than discarding a good link, and stand a
+        // labelled placeholder in for the picture until artwork is set in the list view.
+        if (!url) {
+            if (!parsed) { alert('No artwork could be found from that link — paste an image URL as well'); return; }
+            url = nftPlaceholderUrl({ collection: coll || 'NFT', tokenId: meta.tokenId, contract: meta.contract });
+            meta.placeholder = url;
+            notes.push('no artwork found — using a placeholder, replaceable in list view');
+        }
+
         if (coll) meta.collection = coll;
         if (Object.keys(meta).length) nftMeta[url] = meta;
 
@@ -11361,6 +11396,56 @@ SOL,100</pre></div>
         if (img && typeof img === 'object' && typeof img.description === 'string') img = img.description; // some 1155 schemas nest it
         if (typeof img !== 'string') img = '';
         return { image: resolveImageUrl(substituteTokenId(img, rec.tokenId)), name: typeof json.name === 'string' ? json.name : '' };
+    }
+
+    // Fetches artwork for one NFT from its identity alone, so pasting a marketplace link is
+    // enough to add it — no hunting for an image URL.
+    //
+    // Alchemy first where it covers the chain: cached CDN images and the real collection name
+    // in one call. Otherwise read tokenURI off the chain directly, which is the only route on
+    // the chains Alchemy's NFT API skips — Ink among them, which is exactly where hand-adding
+    // happens most.
+    async function lookupNftArtwork(chainKey, contract, tokenId) {
+        const out = { candidates: [], collection: '', name: '' };
+        if (!contract || tokenId == null) return out;
+        const chain = NFT_SCAN_CHAINS[chainKey || ''] || null;
+
+        if (chain && chain.alchemyNetwork && chain.nftApi !== false && hasAlchemyKey()) {
+            try {
+                const url = alchemyNftBase(chain) + '/getNFTMetadata?contractAddress=' +
+                    encodeURIComponent(contract) + '&tokenId=' + encodeURIComponent(tokenId);
+                const r = await fetch(url);
+                if (r.ok) {
+                    const d = await r.json();
+                    const rawImg = (d.raw && d.raw.metadata && d.raw.metadata.image) || '';
+                    out.candidates = nftImageCandidates(d.image || {}, rawImg);
+                    const c = d.contract || {};
+                    out.collection = safeText((c.openSeaMetadata && c.openSeaMetadata.collectionName) || c.name || '');
+                    out.name = safeText(d.name || '');
+                }
+            } catch (e) { console.warn('[NFT-Add] Alchemy metadata failed:', e.message); }
+        }
+        if (out.candidates.length) return out;
+
+        const rpc = evmRpcUrlForChain(chainKey);
+        if (!rpc) return out;
+        // resolveNftArtwork bails on nftScanState.cancelled, which stays true after a cancelled
+        // scan — so a one-off lookup would silently do nothing until the next scan reset it.
+        const wasCancelled = nftScanState.cancelled;
+        if (!nftScanState.running) nftScanState.cancelled = false;
+        try {
+            const res = await resolveNftArtwork({ kind: 'evm', rpcUrl: () => rpc },
+                { contract, tokenId, standard: 'erc721' });
+            if (res && res.image) {
+                out.candidates = [res.image];
+                if (!out.name) out.name = res.name || '';
+            }
+        } catch (e) {
+            console.warn('[NFT-Add] tokenURI read failed:', e.message);
+        } finally {
+            if (!nftScanState.running) nftScanState.cancelled = wasCancelled;
+        }
+        return out;
     }
 
     // Unique per contract+tokenId, so placeholder entries never collide as gallery keys.
