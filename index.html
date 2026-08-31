@@ -1778,11 +1778,13 @@
     <!-- NFT Scan: Progress Modal -->
     <div class="modal-overlay" id="nftScanProgressModal">
         <div class="modal" style="max-width:480px">
-            <div class="modal-title">🔍 Scanning for NFTs</div>
+            <!-- Shared by the wallet scan and the collage export, so the title and the note
+                 below are set per job — see setNftProgressChrome. -->
+            <div class="modal-title" id="nftScanProgressTitle">🔍 Scanning for NFTs</div>
             <div class="modal-subtitle" id="nftScanProgressLabel">Reading Ethereum transfers…</div>
             <div style="margin:20px 0;display:flex;flex-direction:column;gap:12px">
                 <div style="display:flex;align-items:center;gap:10px"><div class="spinner"></div><div id="nftScanProgressDetail" style="font-size:0.8rem;color:#aaa">Starting…</div></div>
-                <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;font-size:0.7rem;color:#888;line-height:1.5">This is read-only. Nothing is added to your gallery until you review and pick what you want.</div>
+                <div id="nftScanProgressNote" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;font-size:0.7rem;color:#888;line-height:1.5">This is read-only. Nothing is added to your gallery until you review and pick what you want.</div>
             </div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="cancelNftScan()">Cancel</button>
@@ -8855,6 +8857,8 @@ SOL,100</pre></div>
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         nftScanState.cancelled = false;
+        setNftProgressChrome('📸 Building collage',
+            'Drawing the ' + n + ' NFT' + (n !== 1 ? 's' : '') + ' currently shown into one image. Your gallery is not changed.');
         showModal('nftScanProgressModal', true);   // launched from the reorder overlay
         nftScanProgress('Building collage', '0/' + n + ' — loading artwork');
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); // let it paint
@@ -10427,6 +10431,17 @@ SOL,100</pre></div>
         document.getElementById('nftScanModeAll').classList.toggle('active', nftScanMode === 'all');
     }
 
+    // The progress modal is shared by the wallet scan and the collage export. Its title and
+    // reassurance note belong to whichever is running: a collage is not a scan, and telling
+    // someone exporting an image that "nothing is added to your gallery" answers a question
+    // they never asked while claiming to be doing something else entirely.
+    function setNftProgressChrome(title, note) {
+        const t = document.getElementById('nftScanProgressTitle');
+        const n = document.getElementById('nftScanProgressNote');
+        if (t) t.textContent = title;
+        if (n) n.textContent = note;
+    }
+
     function nftScanProgress(label, detail) {
         const lbl = document.getElementById('nftScanProgressLabel');
         const det = document.getElementById('nftScanProgressDetail');
@@ -10468,6 +10483,8 @@ SOL,100</pre></div>
         nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: useAlchemy ? 'alchemy' : 'etherscan', ethUsd: 0, solIndexOk: false, solUnmatched: 0, alchemyFailed: '', chainErrors: [] };
         closeModal('addNFTModal');
         resetNftScanPanel();
+        setNftProgressChrome('🔍 Scanning for NFTs',
+            'This is read-only. Nothing is added to your gallery until you review and pick what you want.');
         showModal('nftScanProgressModal', overReorderOverlay());
         nftScanProgress(useAlchemy ? 'Reading wallets…' : 'Reading transfers…', 'Starting');
 
