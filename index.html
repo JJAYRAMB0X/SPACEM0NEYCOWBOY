@@ -2081,6 +2081,7 @@ SOL,100</pre></div>
                         style="flex:0 1 150px;min-width:120px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
                 <select id="nftTableFilter" onchange="onNftTableFilterChange()"
                         style="flex:1;min-width:180px;max-width:320px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
+                <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="openAddNFTModal()" title="Add an NFT by image URL or OpenSea link, or scan your wallets — same panel as the gallery's Add NFT">➕ Add NFT</button>
                 <button class="nft-scan-view-btn" id="nftRefreshFloorsBtn" style="padding:4px 10px;font-size:0.66rem" onclick="refreshFloorsForShownRows()" title="Recheck the floor price of every collection currently listed — one lookup per collection, applied to all its NFTs">↻ Recheck floors</button>
                 <button class="nft-scan-view-btn" style="padding:4px 10px;font-size:0.66rem" onclick="selectAllTableRows(true)" title="Tick every row the current filters leave visible">Select all shown</button>
                 <!-- Named for what it clears. "Clear" alone sat next to the footer's "Clear
@@ -4957,7 +4958,8 @@ SOL,100</pre></div>
         renderWalletScanChainPicker();
         document.getElementById('walletLabelInput').value = '';
         document.getElementById('walletAddressInput').value = '';
-        showModal('walletManagerModal');
+        // Reachable from the Add NFT panel, which the list view can now open.
+        showModal('walletManagerModal', overReorderOverlay());
     }
 
     // Sending someone off to add a wallet should not lose their place. Remember that the
@@ -8472,6 +8474,9 @@ SOL,100</pre></div>
         insertNftIntoGallery(url, coll || 'Added manually');
         nftIdx = nftGallery.indexOf(url);
         saveNFTs(); saveNftMeta(); updateNFTDisplay();
+        // Added from the list view, the new row has to appear there too — updateNFTDisplay
+        // only redraws the gallery card. renderReorderGrid picks whichever view is open.
+        if (document.getElementById('nftReorderOverlay').classList.contains('active')) renderReorderGrid();
         ['nftUrlInput', 'nftAddOsInput', 'nftAddCollInput'].forEach(id => {
             const el = document.getElementById(id); if (el) el.value = '';
         });
@@ -10235,9 +10240,20 @@ SOL,100</pre></div>
         saveNftSpamOverrides();
     }
 
+    // Opened from the gallery card, and from the list view's toolbar. The list view is an
+    // .fs-overlay at z-index 10000, so a plain modal opens behind it and looks like nothing
+    // happened — it has to be raised, the same way the artwork modal is.
+    // True while the list/tile overlay is up. It is an .fs-overlay at z-index 10000, so any
+    // modal opened from inside it has to be raised or it opens behind and looks like a dead
+    // button. Everything the Add NFT panel can launch has to check this, not just the panel.
+    function overReorderOverlay() {
+        const el = document.getElementById('nftReorderOverlay');
+        return !!el && el.classList.contains('active');
+    }
+
     function openAddNFTModal() {
         resetNftScanPanel();
-        showModal('addNFTModal');
+        showModal('addNFTModal', overReorderOverlay());
     }
 
     function resetNftScanPanel() {
@@ -10452,7 +10468,7 @@ SOL,100</pre></div>
         nftScanState = { running: true, cancelled: false, results: [], truncated: false, metaCapped: false, floorCapped: false, floorRateLimited: false, source: useAlchemy ? 'alchemy' : 'etherscan', ethUsd: 0, solIndexOk: false, solUnmatched: 0, alchemyFailed: '', chainErrors: [] };
         closeModal('addNFTModal');
         resetNftScanPanel();
-        showModal('nftScanProgressModal');
+        showModal('nftScanProgressModal', overReorderOverlay());
         nftScanProgress(useAlchemy ? 'Reading wallets…' : 'Reading transfers…', 'Starting');
 
         try {
@@ -10597,7 +10613,7 @@ SOL,100</pre></div>
             nftScanView = 'new'; // open on what still needs a decision
             closeModal('nftScanProgressModal');
             renderNftScanResults();
-            showModal('nftScanResultsModal');
+            showModal('nftScanResultsModal', overReorderOverlay());
             if (nftScanState.healed > 0) {
                 toast('Repaired artwork for ' + nftScanState.healed + ' NFT' + (nftScanState.healed !== 1 ? 's' : '') + ' already in your gallery', 'success');
             }
