@@ -269,21 +269,16 @@
         .file-input { display: none; }
 
         /* ===== GLOBAL STATS BANNER ===== */
-        /* Anchors the stats bar and the quick sort button as one top-right cluster, so the
-           button sits to the left of the stats however wide those get. */
+        /* Anchors the stats bar and the collapsed-view sort palette as one top-right cluster,
+           so the palette sits to the left of the stats however wide those get. */
         .right-hud {
             position: absolute; top: 12px; right: 16px; z-index: 50;
             display: flex; gap: 10px; align-items: center;
+            /* Two wide pills side by side: on a narrow window let the palette drop onto its own
+               line rather than squeeze, since the right column clips whatever overflows left. */
+            flex-wrap: wrap; justify-content: flex-end; row-gap: 8px;
         }
-        .hud-sort-btn {
-            display: flex; align-items: center; gap: 5px;
-            background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
-            border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;
-            padding: 6px 12px; font-size: 0.7rem; font-weight: 600; color: #8a8a99;
-            cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.25s;
-        }
-        .hud-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.85); border-color: rgba(150,200,255,0.3); }
-        .hud-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.45); color: rgba(200,230,255,0.95); }
+        .right-hud > * { flex: 0 0 auto; }
         .global-stats {
             display: flex; gap: 16px; align-items: center;
             background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
@@ -1011,36 +1006,43 @@
         }
         .ss-wp-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
         .ss-wp-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
+        /* Up at the top right, out of the constellation: down the left edge it sat over the
+           planets. One row of six, tucked just under the stats bar that spans the top. */
         .ss-sort-controls {
-            position: absolute; left: 12px; top: 96px; z-index: 60;
-            display: flex; flex-direction: column; gap: 4px;
+            position: absolute; right: 16px; top: 44px; z-index: 60;
+            display: flex; align-items: stretch; gap: 5px;
             background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 8px; padding: 5px;
+            border-radius: 10px; padding: 4px 6px;
         }
-        .ss-sort-row { display: flex; gap: 3px; }
+        .ss-sort-row { display: flex; align-items: stretch; gap: 4px; }
+        .ss-sort-row + .ss-sort-row { margin-left: 3px; padding-left: 7px; border-left: 1px solid rgba(255,255,255,0.12); }
         .ss-sort-btn {
-            flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px; padding: 4px 8px; color: rgba(255,255,255,0.5);
-            font-size: 0.7rem; font-weight: 600; cursor: pointer; transition: all 0.3s;
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 7px; padding: 4px 9px; color: rgba(255,255,255,0.5);
+            font-size: 0.7rem; font-weight: 600; line-height: 1.15; cursor: pointer; transition: all 0.3s;
             min-width: 30px; text-align: center; font-family: inherit;
         }
         .ss-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
         .ss-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
         .screensaver.ss-nft-only .ss-sort-controls { display: none; }
+        /* Lives in the top-right HUD next to the stats pill, so it matches that glass, not the
+           screensaver's. Only the collapsed view shows it — expanded, the sidebar has these. */
         .coll-sort-controls {
-            position: absolute; left: 20px; top: 76px; z-index: 100;
-            display: none; flex-direction: column; gap: 4px;
-            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 8px; padding: 5px;
+            display: none; align-items: stretch; gap: 5px;
+            background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;
+            padding: 4px 6px;
         }
         .left-column.collapsed ~ .right-column .coll-sort-controls { display: flex; }
-        .coll-sort-row { display: flex; gap: 3px; }
+        .coll-sort-row { display: flex; align-items: stretch; gap: 4px; }
+        .coll-sort-row + .coll-sort-row { margin-left: 3px; padding-left: 7px; border-left: 1px solid rgba(255,255,255,0.10); }
         .coll-sort-btn {
-            flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px; padding: 4px 8px; color: rgba(255,255,255,0.5);
-            font-size: 0.7rem; font-weight: 600; cursor: pointer; transition: all 0.3s;
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 7px; padding: 4px 9px; color: rgba(255,255,255,0.5);
+            font-size: 0.7rem; font-weight: 600; line-height: 1.15; cursor: pointer; transition: all 0.3s;
             min-width: 30px; text-align: center; font-family: inherit;
         }
+        .coll-sort-btn[data-coll-view], .ss-sort-btn[data-ss-view] { font-size: 0.85rem; }
         .coll-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.8); }
         .coll-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.4); color: rgba(200,230,255,0.9); }
         .ss-nft-toggle-btn {
@@ -1322,10 +1324,23 @@
         <!-- RIGHT COLUMN -->
         <div class="right-column" id="rightColumn">
             <canvas class="bg-chart" id="bgChart"></canvas>
-            <!-- The button stays OUTSIDE #globalStats: the screensaver clones that element's
+            <!-- The palette stays OUTSIDE #globalStats: the screensaver clones that element's
                  innerHTML for its own stats bar, and it already has its own sort palette. -->
             <div class="right-hud" id="rightHud">
-                <button class="hud-sort-btn" id="hudChangeBtn" onclick="hudToggleChangeSort()" title="Sort by 24h change — same as the 24h Chg button in the sidebar. Click again to reverse, a third time to clear.">24h Chg <span class="sort-arrow">↓</span></button>
+                <!-- Shown only while the left panel is collapsed, where it is the sole way to
+                     re-sort; see .coll-sort-controls for the rule that reveals it. -->
+                <div class="coll-sort-controls" id="collapseSortControls">
+                    <div class="coll-sort-row">
+                        <button class="coll-sort-btn active" data-coll-view="orbit" onclick="collActivateOrbitMode()" title="Solar System View">🪐</button>
+                        <button class="coll-sort-btn" data-coll-view="regroup" onclick="collActivateRegroupMode()" title="Grid View">⊞</button>
+                    </div>
+                    <div class="coll-sort-row">
+                        <button class="coll-sort-btn" data-coll-sort="marketCap" onclick="collToggleSort('marketCap')" title="Sort by Market Cap">MC</button>
+                        <button class="coll-sort-btn" data-coll-sort="value" onclick="collToggleSort('value')" title="Sort by Holdings">$</button>
+                        <button class="coll-sort-btn" data-coll-sort="whaleScore" onclick="collToggleSort('whaleScore')" title="Sort by Whale Score">🐋</button>
+                        <button class="coll-sort-btn" data-coll-sort="priceChange" onclick="collToggleSort('priceChange')" title="Sort by 24h Change">24h</button>
+                    </div>
+                </div>
                 <div class="global-stats" id="globalStats">
                     <div class="gs-item"><span class="gs-label">Mkt Cap</span><span class="gs-val" id="gsMarketCap">—</span></div>
                     <div class="gs-item gs-change" id="gsChange">—</div>
@@ -1343,18 +1358,6 @@
                 📸
                 <span class="btn-label">Share</span>
             </button>
-            <div class="coll-sort-controls" id="collapseSortControls">
-                <div class="coll-sort-row">
-                    <button class="coll-sort-btn active" data-coll-view="orbit" onclick="collActivateOrbitMode()" title="Solar System View">🪐</button>
-                    <button class="coll-sort-btn" data-coll-view="regroup" onclick="collActivateRegroupMode()" title="Grid View">⊞</button>
-                </div>
-                <div class="coll-sort-row">
-                    <button class="coll-sort-btn" data-coll-sort="marketCap" onclick="collToggleSort('marketCap')" title="Sort by Market Cap">MC</button>
-                    <button class="coll-sort-btn" data-coll-sort="value" onclick="collToggleSort('value')" title="Sort by Holdings">$</button>
-                    <button class="coll-sort-btn" data-coll-sort="whaleScore" onclick="collToggleSort('whaleScore')" title="Sort by Whale Score">🐋</button>
-                    <button class="coll-sort-btn" data-coll-sort="priceChange" onclick="collToggleSort('priceChange')" title="Sort by 24h Change">24h</button>
-                </div>
-            </div>
             <div class="network-container" id="networkContainer">
                 <div class="empty-state"><div class="icon">🌌</div><div>Add tokens to build your portfolio constellation</div></div>
             </div>
@@ -6950,7 +6953,7 @@ SOL,100</pre></div>
                 sortField = null; sortDir = 'desc'; btn.classList.remove('active');
                 if (viewMode === 'regroup') document.getElementById('regroupBtn').classList.add('active');
                 else document.getElementById('orbitBtn').classList.add('active');
-                syncHudSortButton(); saveViewState();   // clearing the sort is a state change too
+                syncSortPalettes(); saveViewState();   // clearing the sort is a state change too
                 renderNetwork(); updateResetBtn(); return;
             }
         } else {
@@ -6959,7 +6962,7 @@ SOL,100</pre></div>
         }
         document.getElementById('orbitBtn').classList.remove('active');
         document.getElementById('regroupBtn').classList.remove('active');
-        btn.classList.add("active"); syncHudSortButton(); saveViewState(); renderNetwork(); updateResetBtn();
+        btn.classList.add("active"); syncSortPalettes(); saveViewState(); renderNetwork(); updateResetBtn();
     }
 
     function activateOrbitMode() {
@@ -6967,7 +6970,7 @@ SOL,100</pre></div>
         sortField = null; sortDir = 'desc'; viewMode = 'orbit';
         document.querySelectorAll('.sort-buttons .sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
         document.getElementById("orbitBtn").classList.add("active");
-        syncHudSortButton(); saveViewState();
+        syncSortPalettes(); saveViewState();
         renderNetwork(); updateResetBtn();
     }
 
@@ -6979,7 +6982,7 @@ SOL,100</pre></div>
         sortField = null; sortDir = 'desc';
         document.querySelectorAll('.sort-buttons .sort-btn').forEach(b => { b.classList.remove('active'); if (b.querySelector('.sort-arrow')) b.querySelector('.sort-arrow').textContent = '↓'; });
         document.getElementById("regroupBtn").classList.add("active");
-        syncHudSortButton(); saveViewState();
+        syncSortPalettes(); saveViewState();
         renderNetwork(); updateResetBtn();
     }
 
@@ -6996,9 +6999,9 @@ SOL,100</pre></div>
             if (btn) btn.classList.add('active');
         }
     }
-    function ssToggleSort(field) { toggleSort(field); renderScreensaverPlanets(); syncSsSortButtons(); syncCollapseSortButtons(); }
-    function ssActivateOrbitMode() { activateOrbitMode(); renderScreensaverPlanets(); syncSsSortButtons(); syncCollapseSortButtons(); }
-    function ssActivateRegroupMode() { activateRegroupMode(); renderScreensaverPlanets(); syncSsSortButtons(); syncCollapseSortButtons(); }
+    function ssToggleSort(field) { toggleSort(field); renderScreensaverPlanets(); syncSortPalettes(); }
+    function ssActivateOrbitMode() { activateOrbitMode(); renderScreensaverPlanets(); syncSortPalettes(); }
+    function ssActivateRegroupMode() { activateRegroupMode(); renderScreensaverPlanets(); syncSortPalettes(); }
 
     function syncCollapseSortButtons() {
         const root = document.getElementById('collapseSortControls');
@@ -7013,22 +7016,14 @@ SOL,100</pre></div>
             if (btn) btn.classList.add('active');
         }
     }
-    function collToggleSort(field) { toggleSort(field); syncCollapseSortButtons(); syncSsSortButtons(); }
-    function collActivateOrbitMode() { activateOrbitMode(); syncCollapseSortButtons(); syncSsSortButtons(); }
-    function collActivateRegroupMode() { activateRegroupMode(); syncCollapseSortButtons(); syncSsSortButtons(); }
+    function collToggleSort(field) { toggleSort(field); syncSortPalettes(); }
+    function collActivateOrbitMode() { activateOrbitMode(); syncSortPalettes(); }
+    function collActivateRegroupMode() { activateRegroupMode(); syncSortPalettes(); }
 
-    // The top-right copy of the sidebar's 24h Chg button. Shares toggleSort, so the two are
-    // the same control in two places rather than two states to keep in step.
-    function hudToggleChangeSort() { toggleSort('priceChange'); syncCollapseSortButtons(); syncSsSortButtons(); }
-
-    function syncHudSortButton() {
-        const btn = document.getElementById('hudChangeBtn');
-        if (!btn) return;
-        const on = sortField === 'priceChange';
-        btn.classList.toggle('active', on);
-        const arrow = btn.querySelector('.sort-arrow');
-        if (arrow) arrow.textContent = on && sortDir === 'asc' ? '↑' : '↓';
-    }
+    // One call to light the right buttons in both copies of the palette: the top-right HUD
+    // strip shown while the panel is collapsed, and the screensaver's. The sidebar's own sort
+    // buttons are handled inline by the functions that change the sort.
+    function syncSortPalettes() { syncCollapseSortButtons(); syncSsSortButtons(); }
 
     // --- remembering the view -----------------------------------------------
     // The orbit view is the prettier first impression, but it is not what you want to land in
@@ -7070,9 +7065,7 @@ SOL,100</pre></div>
             const btn = document.getElementById(viewMode === 'regroup' ? 'regroupBtn' : 'orbitBtn');
             if (btn) btn.classList.add('active');
         }
-        syncCollapseSortButtons();
-        syncSsSortButtons();
-        syncHudSortButton();
+        syncSortPalettes();
     }
 
     // ============================================================
