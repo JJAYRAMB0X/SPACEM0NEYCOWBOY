@@ -3156,6 +3156,9 @@ SOL,100</pre></div>
         currencyMode = next;
         localStorage.setItem(lsKey('currencyMode'), currencyMode);
         syncCurrencyBtn();
+        // The value-filter boxes hold a converted figure, so they have to be re-rendered or
+        // they would keep showing the old currency's number against the new symbol.
+        initCatValueFilterUI();
         refreshAll();
     }
 
@@ -6769,12 +6772,12 @@ SOL,100</pre></div>
             if (inp) inp.style.display = 'none';
             if (inp2) inp2.style.display = 'none';
         } else if (catValueFilterMode === '↔') {
-            btn.textContent = '↔'; btn.title = 'Filter: between $' + catValueFilterAmt + ' and $' + catValueFilterAmt2; btn.style.color = '#00d4ff';
-            if (inp) { inp.style.display = ''; inp.placeholder = 'min'; inp.value = catValueFilterAmt || ''; inp.focus(); }
-            if (inp2) { inp2.style.display = ''; inp2.placeholder = 'max'; inp2.value = catValueFilterAmt2 || ''; }
+            btn.textContent = '↔'; btn.title = 'Filter: between ' + fmtCur(catValueFilterAmt) + ' and ' + fmtCur(catValueFilterAmt2); btn.style.color = '#00d4ff';
+            if (inp) { inp.style.display = ''; inp.placeholder = 'min'; inp.value = catValueFilterAmt ? curEditValue(catValueFilterAmt) : ''; inp.focus(); }
+            if (inp2) { inp2.style.display = ''; inp2.placeholder = 'max'; inp2.value = catValueFilterAmt2 ? curEditValue(catValueFilterAmt2) : ''; }
         } else {
-            btn.textContent = catValueFilterMode; btn.title = 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt; btn.style.color = '#00d4ff';
-            if (inp) { inp.style.display = ''; inp.placeholder = '$'; inp.value = catValueFilterAmt || ''; inp.focus(); }
+            btn.textContent = catValueFilterMode; btn.title = 'Filter: ' + catValueFilterMode + ' ' + fmtCur(catValueFilterAmt); btn.style.color = '#00d4ff';
+            if (inp) { inp.style.display = ''; inp.placeholder = curSym(); inp.value = catValueFilterAmt ? curEditValue(catValueFilterAmt) : ''; inp.focus(); }
             if (inp2) inp2.style.display = 'none';
         }
         syncValueFilterSkipBtn();
@@ -6816,10 +6819,14 @@ SOL,100</pre></div>
         }
     }
 
-    // True when the value filter is active AND this token would be hidden by it
+    // True when the value filter is active AND this token would be hidden by it.
+    // Both sides are USD: the threshold is stored in USD and only converted for display, so
+    // switching currency changes how it reads, never what it means. Comparing a converted
+    // value against a raw threshold hid every token the moment ETH was selected — a $400
+    // holding becomes 0.16, which is under any dollar threshold ever typed.
     function isFilteredOutByValueFilter(token) {
         if (!isValueFilterActive()) return false;
-        const v = toCur(token.value || 0);
+        const v = token.value || 0;
         if (catValueFilterMode === '<') return !(v < catValueFilterAmt);
         if (catValueFilterMode === '>') return !(v > catValueFilterAmt);
         if (catValueFilterMode === '↔') {
@@ -6846,12 +6853,13 @@ SOL,100</pre></div>
         const btn = document.getElementById('catValueFilterBtn');
         if (!btn || catValueFilterMode === 'off') return;
         btn.title = catValueFilterMode === '↔'
-            ? 'Filter: between $' + catValueFilterAmt + ' and $' + catValueFilterAmt2
-            : 'Filter: ' + catValueFilterMode + ' $' + catValueFilterAmt;
+            ? 'Filter: between ' + fmtCur(catValueFilterAmt) + ' and ' + fmtCur(catValueFilterAmt2)
+            : 'Filter: ' + catValueFilterMode + ' ' + fmtCur(catValueFilterAmt);
     }
 
     function setCatValueFilterAmt(val) {
-        catValueFilterAmt = parseFloat(val) || 0;
+        // Typed in the currency on screen, stored in USD.
+        catValueFilterAmt = fromCur(parseFloat(val) || 0);
         localStorage.setItem(lsKey('catValueFilterAmt'), catValueFilterAmt);
         updateValueFilterBtnTitle();
         syncValueFilterSkipBtn();
@@ -6860,7 +6868,7 @@ SOL,100</pre></div>
     }
 
     function setCatValueFilterAmt2(val) {
-        catValueFilterAmt2 = parseFloat(val) || 0;
+        catValueFilterAmt2 = fromCur(parseFloat(val) || 0);
         localStorage.setItem(lsKey('catValueFilterAmt2'), catValueFilterAmt2);
         updateValueFilterBtnTitle();
         syncValueFilterSkipBtn();
@@ -6876,10 +6884,10 @@ SOL,100</pre></div>
             if (btn) { btn.textContent = catValueFilterMode; btn.style.color = '#00d4ff'; }
             updateValueFilterBtnTitle();
             if (catValueFilterMode === '↔') {
-                if (inp) { inp.style.display = ''; inp.placeholder = 'min'; inp.value = catValueFilterAmt || ''; }
-                if (inp2) { inp2.style.display = ''; inp2.placeholder = 'max'; inp2.value = catValueFilterAmt2 || ''; }
+                if (inp) { inp.style.display = ''; inp.placeholder = 'min'; inp.value = catValueFilterAmt ? curEditValue(catValueFilterAmt) : ''; }
+                if (inp2) { inp2.style.display = ''; inp2.placeholder = 'max'; inp2.value = catValueFilterAmt2 ? curEditValue(catValueFilterAmt2) : ''; }
             } else {
-                if (inp) { inp.style.display = ''; inp.placeholder = '$'; inp.value = catValueFilterAmt || ''; }
+                if (inp) { inp.style.display = ''; inp.placeholder = curSym(); inp.value = catValueFilterAmt ? curEditValue(catValueFilterAmt) : ''; }
             }
         }
         syncValueFilterSkipBtn();
