@@ -1671,6 +1671,11 @@
             <div class="modal-title">🖼️ Add NFT</div>
             <div class="modal-subtitle">Paste image URL from OpenSea, Magic Eden, etc.</div>
             <div class="modal-field"><label class="input-label">Image URL</label><input type="text" id="nftUrlInput" placeholder="https://..." style="width:100%"><div class="modal-hint">Right-click NFT image → Copy Image Address</div></div>
+            <!-- Same two fields the list view's artwork modal has. Without them a hand-added
+                 NFT has no identity and lands in "Added manually" forever, which is what
+                 happens to every NFT on a chain the scan cannot reach. -->
+            <div class="modal-field"><label class="input-label">OpenSea link <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddOsInput" placeholder="https://opensea.io/item/ink/0x…/352" style="width:100%" autocomplete="off" spellcheck="false"><div class="modal-hint">Gives it a contract and token ID, so it prices and groups like a scanned NFT.</div></div>
+            <div class="modal-field"><label class="input-label">Collection <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddCollInput" placeholder="e.g. Bored Ape Yacht Club" style="width:100%" maxlength="60" autocomplete="off"><div class="modal-hint">Leave blank and it files under “Added manually”. Match an existing collection and it joins it.</div></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeModal('addNFTModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="addNFT()">Add to Gallery</button>
@@ -1741,6 +1746,9 @@
                     <div class="input-label" style="margin-bottom:5px">Image URL</div>
                     <input type="text" id="nftArtInput" class="token-input" style="width:100%" placeholder="https://i.seadn.io/… or any direct image link" autocomplete="off" spellcheck="false">
                     <div class="modal-hint" style="margin-top:6px;line-height:1.5">Open the NFT on OpenSea, right-click its image → “Copy image address”, and paste it here. Any direct image URL works.</div>
+                    <div class="input-label" style="margin:12px 0 5px">Collection <span style="color:#666;font-weight:400">— rename to group it with others</span></div>
+                    <input type="text" id="nftArtCollInput" class="token-input" style="width:100%" placeholder="e.g. Bored Ape Yacht Club" maxlength="60" autocomplete="off">
+                    <div class="modal-hint" style="margin-top:6px;line-height:1.5">Type an existing collection's name exactly and this NFT joins it — it moves next to them and prices with them.</div>
                     <div class="input-label" style="margin:12px 0 5px">OpenSea link <span style="color:#666;font-weight:400">— optional</span></div>
                     <input type="text" id="nftArtOsInput" class="token-input" style="width:100%" placeholder="https://opensea.io/item/ink/0x…/352" autocomplete="off" spellcheck="false">
                     <div class="modal-hint" id="nftArtOsHint" style="margin-top:6px;line-height:1.5"></div>
@@ -8347,10 +8355,43 @@ SOL,100</pre></div>
     // ============================================================
     function addNFT() {
         const url = document.getElementById('nftUrlInput').value.trim();
+        const os = (document.getElementById('nftAddOsInput') || {}).value?.trim() || '';
+        let coll = ((document.getElementById('nftAddCollInput') || {}).value || '').trim();
         if (!url) { alert('Enter an image URL'); return; }
         try { new URL(url); } catch { alert('Invalid URL'); return; }
-        nftGallery.push(url); nftIdx = nftGallery.length - 1;
-        saveNFTs(); updateNFTDisplay(); closeModal('addNFTModal');
+        if (os && !/^https?:\/\/(www\.)?opensea\.io\//i.test(os)) { toast('That does not look like an OpenSea link', 'warning'); return; }
+        if (nftGallery.includes(url)) { toast('That image is already in the gallery', 'warning'); return; }
+
+        const meta = {};
+        const notes = [];
+        if (os) {
+            meta.openseaUrl = os;
+            const parsed = parseOpenseaUrl(os);
+            if (parsed) {
+                meta.contract = parsed.contract;
+                meta.tokenId = parsed.tokenId;
+                if (parsed.chainKey) meta.chain = parsed.chainKey;
+                notes.push('linked to its contract');
+                // If a scan already named this contract, take that name — typing it by hand
+                // risks a near-match that creates a second collection of one.
+                const known = knownCollectionNameFor(meta.chain, meta.contract);
+                if (known && !coll) { coll = known; notes.push('joined ' + known); }
+            } else {
+                notes.push('link saved, but no contract could be read from it');
+            }
+        }
+        if (coll) meta.collection = coll;
+        if (Object.keys(meta).length) nftMeta[url] = meta;
+
+        // Land beside the rest of its collection, exactly as a scanned NFT does.
+        insertNftIntoGallery(url, coll || 'Added manually');
+        nftIdx = nftGallery.indexOf(url);
+        saveNFTs(); saveNftMeta(); updateNFTDisplay();
+        ['nftUrlInput', 'nftAddOsInput', 'nftAddCollInput'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+        });
+        closeModal('addNFTModal');
+        toast(notes.length ? 'NFT added · ' + notes.join(' · ') : 'NFT added', 'success');
     }
 
     function updateNFTDisplay() {
@@ -8583,6 +8624,36 @@ SOL,100</pre></div>
     function nftCollectionOf(url) {
         const m = nftMeta[url];
         return (m && m.collection) || 'Added manually';
+    }
+
+    // The name a scan already gave this contract, if anything in the gallery came from one.
+    // Lets a hand-added NFT inherit the real collection name instead of being renamed to
+    // something that only nearly matches and lands in a collection of one.
+    function knownCollectionNameFor(chain, contract) {
+        if (!contract) return '';
+        const ck = collectionKey(chain, contract);
+        for (const u of nftGallery) {
+            const m = nftMeta[u];
+            if (m && m.contract && m.collection && collectionKey(m.chain, m.contract) === ck) return m.collection;
+        }
+        return '';
+    }
+
+    // Moves an NFT next to the rest of its collection. Renaming into an existing collection
+    // should place it there, not leave it stranded wherever it happened to be added.
+    function regroupNftIntoCollection(url) {
+        const at = nftGallery.indexOf(url);
+        if (at === -1) return;
+        const name = nftCollectionOf(url);
+        let after = -1;
+        nftGallery.forEach((u, i) => { if (u !== url && nftCollectionOf(u) === name) after = i; });
+        if (after === -1) return;
+        const wasShowing = nftGallery[nftIdx];
+        nftGallery.splice(at, 1);
+        nftGallery.splice(after > at ? after : after + 1, 0, url);
+        const back = nftGallery.indexOf(wasShowing);
+        if (back !== -1) nftIdx = back;
+        saveNFTs();
     }
 
     // Reorders the gallery in place. nftIdx follows the NFT the user was looking at rather
@@ -8927,6 +8998,8 @@ SOL,100</pre></div>
         document.getElementById('nftArtSubtitle').textContent =
             nftCollectionOf(url) + (meta.tokenId != null ? ' · #' + shortTokenId(meta.tokenId) : '');
         document.getElementById('nftArtInput').value = meta.artOverride || '';
+        // Blank rather than the "Added manually" placeholder, so clearing it is meaningful.
+        document.getElementById('nftArtCollInput').value = meta.collection || '';
         bindNftImage(document.getElementById('nftArtPreview'), galleryImageCandidates(url), meta.placeholder || '');
 
         document.getElementById('nftArtOsInput').value = meta.openseaUrl || '';
@@ -8956,7 +9029,9 @@ SOL,100</pre></div>
         if (!url) return;
         const v = document.getElementById('nftArtInput').value.trim();
         const os = document.getElementById('nftArtOsInput').value.trim();
-        if (!v && !os) { toast('Paste an image URL or an OpenSea link', 'warning'); return; }
+        const coll = document.getElementById('nftArtCollInput').value.trim();
+        const collChanged = coll !== ((nftMeta[url] || {}).collection || '');
+        if (!v && !os && !collChanged) { toast('Paste an image URL, an OpenSea link, or a collection name', 'warning'); return; }
         if (v && !/^(https?:|data:image\/|ipfs:)/i.test(v)) { toast('That does not look like an image URL', 'warning'); return; }
         if (os && !/^https?:\/\/(www\.)?opensea\.io\//i.test(os)) { toast('That does not look like an OpenSea link', 'warning'); return; }
 
@@ -8984,7 +9059,21 @@ SOL,100</pre></div>
             }
         }
 
+        if (collChanged) {
+            if (coll) { meta.collection = coll; notes.push('collection set to ' + coll); }
+            else { delete meta.collection; notes.push('collection cleared'); }
+        }
+        // An OpenSea link can identify the contract even when no name was typed — if a scan
+        // already named it, adopt that rather than leaving this one in "Added manually".
+        if (!meta.collection && meta.contract) {
+            const known = knownCollectionNameFor(meta.chain, meta.contract);
+            if (known) { meta.collection = known; notes.push('joined ' + known); }
+        }
+
         saveNftMeta();
+        // Renaming into an existing collection should put it with them, not leave it
+        // sorted somewhere else in the gallery under a name it now shares.
+        regroupNftIntoCollection(url);
         closeModal('nftArtModal');
         if (nftReorderView === 'table') renderReorderTable(); else renderReorderGrid();
         updateNFTDisplay();
