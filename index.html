@@ -2078,6 +2078,7 @@ SOL,100</pre></div>
                     <input type="checkbox" id="nftTableUnpricedOnly" onchange="onNftTableFilterChange()" style="width:14px;height:14px;cursor:pointer;accent-color:#00d4ff">
                     <span>Only unpriced</span>
                 </label>
+                <span style="font-size:0.68rem;color:#778;letter-spacing:0.02em">Showing:</span>
                 <button class="nft-scan-view-btn" id="nftCollSortBtn" style="padding:4px 9px;font-size:0.66rem" onclick="setNftCollSort(nftCollSort === 'value' ? 'name' : 'value')">A–Z</button>
                 <select id="nftTableTagFilter" onchange="onNftTableFilterChange()" title="Narrows both the list and the collection dropdown beside it"
                         style="flex:0 1 150px;min-width:120px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.16);border-radius:8px;padding:5px 10px;color:#e2e8f0;font-size:0.73rem;font-family:inherit"></select>
@@ -2092,7 +2093,7 @@ SOL,100</pre></div>
                 <button class="nft-scan-view-btn" id="nftTableTagBtn" style="padding:4px 10px;font-size:0.66rem" onclick="openBulkTagMenu(this)" title="Apply or remove a tag across every ticked row at once">🏷 Tag selected</button>
                 <button class="nft-table-danger" id="nftTableDeleteBtn" onclick="deleteSelectedTableRows()">Delete selected</button>
             </div>
-            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · ⏱ sets an auto floor recheck for the whole collection · Right-click a row to recheck its floor now, or tag it · Column headers sort this list only; “Gallery order” above rewrites the saved order used by the slideshow and collage</div>
+            <div id="nftTableHint" style="font-size:0.66rem;color:#666;margin:-4px 0 8px;display:none">Click a value to edit · Enter saves and moves down · “→ all” prices the whole collection · “Showing” picks what you are looking at — tag and collection scope the list, the tiles, the slideshow, the screensaver and the collage alike. “Gallery order” sets the saved order those play in. Column headers re-sort this list only. · ⏱ sets an auto floor recheck for the whole collection · Right-click a row to recheck its floor now, or tag it</div>
             <div class="reorder-grid" id="reorderGrid"></div>
             <div class="nft-table-wrap" id="reorderTableWrap" style="display:none"><table class="nft-table" id="reorderTable"></table></div>
             <div class="nft-table-foot" id="reorderTableFoot" style="display:none"></div>
@@ -2486,15 +2487,26 @@ SOL,100</pre></div>
     // is the only thing that works across them). 'and' — carries all of them, which is how you
     // ask for a custom tag *within* a chain, e.g. "moneymakers" that are also on Robinhood.
     let nftPlayTagMode = 'or';
+    // A collection filter is the same kind of thing as a tag filter — "what am I looking at" —
+    // so it lives beside them and scopes every surface, not just the list it is chosen in.
+    // Lowercased, matching the dropdown's option values.
+    let nftPlayCollection = '';
 
     // The one test for "does this NFT pass the current tag filter". The gallery, the list rows
     // and the collection dropdown all call it — when they each had their own copy of this,
     // adding a second tag silently stopped the list filtering while the slideshow carried on.
-    function nftPassesPlayFilter(url) {
-        if (!nftPlayScoped()) return true;
+    // Tags alone. Kept separate because the collection dropdown is populated from this: if it
+    // used the full filter it would only ever offer the collection already selected.
+    function nftPassesTagFilter(url) {
+        if (!nftPlayTags.length) return true;
         return nftPlayTagMode === 'and'
             ? nftPlayTags.every(t => nftHasTag(url, t))
             : nftPlayTags.some(t => nftHasTag(url, t));
+    }
+
+    function nftPassesPlayFilter(url) {
+        if (nftPlayCollection && nftCollectionOf(url).toLowerCase() !== nftPlayCollection) return false;
+        return nftPassesTagFilter(url);
     }
 
     function setNftPlayTagMode(mode) {
@@ -2509,10 +2521,12 @@ SOL,100</pre></div>
         try {
             localStorage.setItem(lsKey('nftPlayTags'), JSON.stringify(nftPlayTags));
             localStorage.setItem(lsKey('nftPlayTagMode'), nftPlayTagMode);
+            localStorage.setItem(lsKey('nftPlayCollection'), nftPlayCollection);
         } catch (e) {}
     }
     function loadNftPlayTags() {
         try { nftPlayTagMode = localStorage.getItem(lsKey('nftPlayTagMode')) === 'and' ? 'and' : 'or'; } catch (e) {}
+        try { nftPlayCollection = localStorage.getItem(lsKey('nftPlayCollection')) || ''; } catch (e) {}
         try {
             const d = JSON.parse(localStorage.getItem(lsKey('nftPlayTags')));
             if (Array.isArray(d)) { nftPlayTags = d.filter(t => typeof t === 'string' && t); return; }
@@ -2527,7 +2541,7 @@ SOL,100</pre></div>
 
     function isNftPlayTag(tag) { return nftPlayTags.indexOf(tag) !== -1; }
     // The gallery is scoped when at least one tag is on; no tags means everything.
-    function nftPlayScoped() { return nftPlayTags.length > 0; }
+    function nftPlayScoped() { return nftPlayTags.length > 0 || !!nftPlayCollection; }
     function nftPlayTagsLabel() { return nftPlayTags.map(nftTagLabel).join(nftPlayTagMode === 'and' ? ' & ' : ' + '); }
     // A single selected custom tag — the only case where "delete this tag" has one subject.
     function loneCustomPlayTag() {
@@ -2588,6 +2602,13 @@ SOL,100</pre></div>
     }
     // Back-compat shim: single-tag callers (the list dropdown) still read naturally.
     function setNftPlayTag(tag) { setNftPlayTags(tag); }
+
+    function setNftPlayCollection(name) {
+        const next = (name || '').trim().toLowerCase();
+        if (next === nftPlayCollection) return;
+        nftPlayCollection = next;
+        applyNftPlayTagChange();
+    }
 
     function applyNftPlayTagChange() {
         saveNftPlayTags();
@@ -8991,6 +9012,9 @@ SOL,100</pre></div>
                 setNftPlayTags(tagSel.value);
             }
         }
+        const collSel = document.getElementById('nftTableFilter');
+        // The collection dropdown scopes everything now, not just this list.
+        if (collSel) setNftPlayCollection(collSel.value);
         nftTableJustPriced.clear();
         renderReorderGrid();
     }
@@ -9001,7 +9025,8 @@ SOL,100</pre></div>
         const cb = document.getElementById('nftTableUnpricedOnly');
         if (sel) sel.value = '';
         if (tag) tag.value = '';
-        setNftPlayTag('');
+        setNftPlayTags([]);
+        setNftPlayCollection('');
         if (cb) cb.checked = false;
         nftTableJustPriced.clear();
         renderReorderTable();
@@ -9250,7 +9275,6 @@ SOL,100</pre></div>
 
     function nftTableRows() {
         const onlyUnpriced = (document.getElementById('nftTableUnpricedOnly') || {}).checked;
-        const q = ((document.getElementById('nftTableFilter') || {}).value || '').trim().toLowerCase();
         let rows = nftGallery.map((url, idx) => ({
             idx, url,
             collection: nftCollectionOf(url),
@@ -9267,7 +9291,6 @@ SOL,100</pre></div>
         // typing a value removes the row before you can hit "→ all" on it. Re-ticking the
         // checkbox (or clearing filters) drops them and shows what is genuinely left.
         if (onlyUnpriced) rows = rows.filter(r => !(r.value > 0) || nftTableJustPriced.has(r.url));
-        if (q) rows = rows.filter(r => r.collection.toLowerCase() === q); // dropdown = exact
 
         const { col, dir } = nftTableSort;
         rows.sort((a, b) => {
@@ -9346,17 +9369,18 @@ SOL,100</pre></div>
         renderNftTagFilterOptions();
         const sel = document.getElementById('nftTableFilter');
         if (!sel) return;
-        const keep = sel.value;
-        // The tag filter scopes the collection list: a collection with nothing carrying the
-        // selected tag isn't offered at all, rather than being offered and yielding no rows.
-        const scoped = nftGallery.filter(nftPassesPlayFilter);
+        // Scoped by tags only, not the full filter — a list built from the full filter would
+        // offer nothing but the collection already chosen.
+        const scoped = nftGallery.filter(nftPassesTagFilter);
         const colls = galleryCollections(scoped);
         sel.innerHTML = '<option value="">All collections (' + scoped.length + ')</option>' +
             colls.map(([c, n, v]) => '<option value="' + escapeHtml(c.toLowerCase()) + '">' + escapeHtml(c) + ' (' + n +
                 (nftCollSort === 'value' && v > 0 ? ' · ' + fmtCur(v) : '') +
                 ')</option>').join('');
         // Keep the current filter if that collection still exists after a delete.
-        sel.value = colls.some(([c]) => c.toLowerCase() === keep) ? keep : '';
+        const stillThere = colls.some(([c]) => c.toLowerCase() === nftPlayCollection);
+        if (nftPlayCollection && !stillThere) setNftPlayCollection('');
+        sel.value = stillThere ? nftPlayCollection : '';
 
         const btn = document.getElementById('nftCollSortBtn');
         if (btn) {
@@ -10018,7 +10042,13 @@ SOL,100</pre></div>
     function renderReorderTiles() {
         const grid = document.getElementById('reorderGrid');
         grid.innerHTML = '';
-        nftGallery.forEach((url, idx) => {
+        // Tiles used to walk the whole gallery, so a filter chosen in the list view had no
+        // effect here — the two views of the same overlay disagreed about what you were
+        // looking at. dataset.idx stays the real gallery index, so dragging still reorders
+        // the actual gallery.
+        const shown = playableNftIndices();
+        shown.forEach(idx => {
+            const url = nftGallery[idx];
             const item = document.createElement('div');
             item.className = 'reorder-item';
             item.draggable = true;
