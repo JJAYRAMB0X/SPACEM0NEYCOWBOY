@@ -1674,7 +1674,7 @@
             <!-- Same two fields the list view's artwork modal has. Without them a hand-added
                  NFT has no identity and lands in "Added manually" forever, which is what
                  happens to every NFT on a chain the scan cannot reach. -->
-            <div class="modal-field"><label class="input-label">OpenSea link <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddOsInput" placeholder="https://opensea.io/item/ink/0x…/352" style="width:100%" autocomplete="off" spellcheck="false"><div class="modal-hint">Gives it a contract and token ID, so it prices and groups like a scanned NFT.</div></div>
+            <div class="modal-field"><label class="input-label">OpenSea link <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddOsInput" placeholder="https://opensea.io/item/ink/0x…/352" style="width:100%" autocomplete="off" spellcheck="false"><div class="modal-hint">The individual NFT's page, <strong style="color:#8a8a99">not</strong> the collection's — it must end in a token number. That gives it a contract and token ID, so it prices and groups like a scanned NFT.</div></div>
             <div class="modal-field"><label class="input-label">Collection <span style="color:#666;font-weight:400">— optional</span></label><input type="text" id="nftAddCollInput" placeholder="e.g. Bored Ape Yacht Club" style="width:100%" maxlength="60" autocomplete="off"><div class="modal-hint">Leave blank and it files under “Added manually”. Match an existing collection and it joins it.</div></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeModal('addNFTModal')">Cancel</button>
@@ -9005,7 +9005,7 @@ SOL,100</pre></div>
         document.getElementById('nftArtOsInput').value = meta.openseaUrl || '';
         document.getElementById('nftArtOsHint').innerHTML = meta.contract
             ? 'Paste a link to override the one below.'
-            : 'This NFT was added by hand, so it has no contract or token ID. Paste its OpenSea link and the ID is read back out of it — which also enables “→ all” for its collection.';
+            : 'This NFT was added by hand, so it has no contract or token ID. Paste the link to <strong style="color:#8a8a99">this NFT</strong> — not the collection page; it must end in a token number — and the ID is read back out of it, which also enables “→ all” for its collection.';
 
         const links = document.getElementById('nftArtLinks');
         const os = openseaItemUrl(url);
@@ -9056,6 +9056,10 @@ SOL,100</pre></div>
                 meta.tokenId = parsed.tokenId;
                 if (parsed.chainKey) meta.chain = parsed.chainKey;
                 notes.push('collection linked');
+            } else if (!parsed && !meta.contract) {
+                // A collection page has no token in it. Saying so beats reporting success on
+                // a link that gave the NFT none of the identity it was pasted for.
+                notes.push('no token ID in that link — use the individual NFT\'s page to link it');
             }
         }
 
