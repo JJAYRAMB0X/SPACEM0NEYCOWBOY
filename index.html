@@ -269,8 +269,9 @@
         .file-input { display: none; }
 
         /* ===== GLOBAL STATS BANNER ===== */
-        /* Anchors the stats bar and the collapsed-view sort palette as one top-right cluster,
-           so the palette sits to the left of the stats however wide those get. */
+        /* Anchors the stats bar and whichever sort control the current view calls for as one
+           top-right cluster, so that control sits to the left of the stats however wide those
+           get. The cluster is market-wide data, so no mode takes it away. */
         .right-hud {
             position: absolute; top: 12px; right: 16px; z-index: 50;
             display: flex; gap: 10px; align-items: center;
@@ -279,6 +280,18 @@
             flex-wrap: wrap; justify-content: flex-end; row-gap: 8px;
         }
         .right-hud > * { flex: 0 0 auto; }
+        .hud-sort-btn {
+            display: flex; align-items: center; gap: 5px;
+            background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;
+            padding: 6px 12px; font-size: 0.7rem; font-weight: 600; color: #8a8a99;
+            cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.25s;
+        }
+        .hud-sort-btn:hover { background: rgba(100,180,255,0.15); color: rgba(255,255,255,0.85); border-color: rgba(150,200,255,0.3); }
+        .hud-sort-btn.active { background: rgba(100,180,255,0.2); border-color: rgba(150,200,255,0.45); color: rgba(200,230,255,0.95); }
+        /* Collapsed is the one view with no sidebar to sort from, so there the full palette
+           takes this button's place. Expanded, the button stays and the palette is hidden. */
+        .left-column.collapsed ~ .right-column .hud-sort-btn { display: none; }
         .global-stats {
             display: flex; gap: 16px; align-items: center;
             background: rgba(0,0,0,0.35); backdrop-filter: blur(8px);
@@ -797,7 +810,6 @@
         .share-hide-values .node-change,
         .share-hide-values .stat-value,
         .share-hide-values .total-value-amount,
-        .share-hide-values .global-stats,
         .share-hide-values #totalBreakdown,
         .share-hide-values .cat-total-box .value,
         .share-hide-values #ssPortfolioValue,
@@ -1324,11 +1336,12 @@
         <!-- RIGHT COLUMN -->
         <div class="right-column" id="rightColumn">
             <canvas class="bg-chart" id="bgChart"></canvas>
-            <!-- The palette stays OUTSIDE #globalStats: the screensaver clones that element's
+            <!-- Both controls stay OUTSIDE #globalStats: the screensaver clones that element's
                  innerHTML for its own stats bar, and it already has its own sort palette. -->
             <div class="right-hud" id="rightHud">
-                <!-- Shown only while the left panel is collapsed, where it is the sole way to
-                     re-sort; see .coll-sort-controls for the rule that reveals it. -->
+                <button class="hud-sort-btn" id="hudChangeBtn" onclick="hudToggleChangeSort()" title="Sort by 24h change — same as the 24h Chg button in the sidebar. Click again to reverse, a third time to clear.">24h Chg <span class="sort-arrow">↓</span></button>
+                <!-- Shown only while the left panel is collapsed, where it takes the button's
+                     place; see .coll-sort-controls for the rule that reveals it. -->
                 <div class="coll-sort-controls" id="collapseSortControls">
                     <div class="coll-sort-row">
                         <button class="coll-sort-btn active" data-coll-view="orbit" onclick="collActivateOrbitMode()" title="Solar System View">🪐</button>
@@ -3099,6 +3112,9 @@ SOL,100</pre></div>
 
     function applyHideValues() {
         document.body.classList.toggle('share-hide-values', hideValuesEnabled);
+        // The 24h % over each token says nothing about how much you hold, so it survives the
+        // toggle — the same pairing Share Mode offers as Hide Values + Keep Change.
+        document.body.classList.toggle('share-keep-change', hideValuesEnabled);
     }
 
     function toggleHideValues() {
@@ -7020,10 +7036,23 @@ SOL,100</pre></div>
     function collActivateOrbitMode() { activateOrbitMode(); syncSortPalettes(); }
     function collActivateRegroupMode() { activateRegroupMode(); syncSortPalettes(); }
 
-    // One call to light the right buttons in both copies of the palette: the top-right HUD
-    // strip shown while the panel is collapsed, and the screensaver's. The sidebar's own sort
-    // buttons are handled inline by the functions that change the sort.
-    function syncSortPalettes() { syncCollapseSortButtons(); syncSsSortButtons(); }
+    // The top-right 24h Chg button. Shares toggleSort, so it and the sidebar's copy are the
+    // same control in two places rather than two states to keep in step.
+    function hudToggleChangeSort() { toggleSort('priceChange'); syncSortPalettes(); }
+
+    function syncHudSortButton() {
+        const btn = document.getElementById('hudChangeBtn');
+        if (!btn) return;
+        const on = sortField === 'priceChange';
+        btn.classList.toggle('active', on);
+        const arrow = btn.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = on && sortDir === 'asc' ? '↑' : '↓';
+    }
+
+    // One call to light the right buttons in every copy of the sort controls outside the
+    // sidebar: the top-right button, the palette that replaces it when collapsed, and the
+    // screensaver's. The sidebar's own buttons are handled inline by the sort functions.
+    function syncSortPalettes() { syncHudSortButton(); syncCollapseSortButtons(); syncSsSortButtons(); }
 
     // --- remembering the view -----------------------------------------------
     // The orbit view is the prettier first impression, but it is not what you want to land in
@@ -12705,7 +12734,7 @@ SOL,100</pre></div>
         // The main app applies `share-hide-values` to <body>; since the screensaver lives inside
         // body, that class would bleed through and force values hidden even if Share Mode wants
         // them shown. Strip it from body for the duration of Share Mode — restored in exitShareMode.
-        document.body.classList.remove('share-hide-values');
+        document.body.classList.remove('share-hide-values', 'share-keep-change');
 
         // Add hide-values CSS class BEFORE rendering so all created elements are hidden
         const screensaverEl = document.getElementById('screensaver');
