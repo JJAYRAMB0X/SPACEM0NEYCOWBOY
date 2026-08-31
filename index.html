@@ -2192,13 +2192,13 @@ SOL,100</pre></div>
     let nftShuffleBag = [], nftShuffleBagFor = '';
     function nextShuffledIdx(current, len) {
         if (len <= 1) return 0;
-        if (nftShuffleBagFor !== nftPlayTag + ':' + len || nftShuffleBag.length === 0) {
+        if (nftShuffleBagFor !== nftPlayTags.join('|') + ':' + len || nftShuffleBag.length === 0) {
             nftShuffleBag = Array.from({ length: len }, (_, i) => i);
             for (let i = len - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 const t = nftShuffleBag[i]; nftShuffleBag[i] = nftShuffleBag[j]; nftShuffleBag[j] = t;
             }
-            nftShuffleBagFor = nftPlayTag + ':' + len;
+            nftShuffleBagFor = nftPlayTags.join('|') + ':' + len;
             const last = nftShuffleBag.length - 1;
             if (nftShuffleBag[last] === current && len > 1) {
                 const t = nftShuffleBag[last]; nftShuffleBag[last] = nftShuffleBag[0]; nftShuffleBag[0] = t;
@@ -2409,13 +2409,34 @@ SOL,100</pre></div>
     // app-level setting, not a list-view filter, because the point of tagging was to choose
     // what the slideshow and the collage show — so the list, the card, the fullscreen viewer,
     // the screensaver and the collage all read it.
-    let nftPlayTag = '';
+    // Several tags can be active at once and they combine as OR — an NFT plays if it carries
+    // ANY of them. AND would be useless for the common case: chain tags are mutually
+    // exclusive, so "Base AND Zora" can never match anything.
+    let nftPlayTags = [];
 
-    function saveNftPlayTag() {
-        try { localStorage.setItem(lsKey('nftPlayTag'), nftPlayTag); } catch (e) {}
+    function saveNftPlayTags() {
+        try { localStorage.setItem(lsKey('nftPlayTags'), JSON.stringify(nftPlayTags)); } catch (e) {}
     }
-    function loadNftPlayTag() {
-        try { nftPlayTag = localStorage.getItem(lsKey('nftPlayTag')) || ''; } catch (e) { nftPlayTag = ''; }
+    function loadNftPlayTags() {
+        try {
+            const d = JSON.parse(localStorage.getItem(lsKey('nftPlayTags')));
+            if (Array.isArray(d)) { nftPlayTags = d.filter(t => typeof t === 'string' && t); return; }
+        } catch (e) {}
+        // Carry over the single-tag setting this replaced, so an active filter survives the
+        // upgrade instead of silently resetting to the whole gallery.
+        try {
+            const old = localStorage.getItem(lsKey('nftPlayTag'));
+            nftPlayTags = old ? [old] : [];
+        } catch (e) { nftPlayTags = []; }
+    }
+
+    function isNftPlayTag(tag) { return nftPlayTags.indexOf(tag) !== -1; }
+    // The gallery is scoped when at least one tag is on; no tags means everything.
+    function nftPlayScoped() { return nftPlayTags.length > 0; }
+    function nftPlayTagsLabel() { return nftPlayTags.map(nftTagLabel).join(' + '); }
+    // A single selected custom tag — the only case where "delete this tag" has one subject.
+    function loneCustomPlayTag() {
+        return nftPlayTags.length === 1 && nftTagDefs[nftPlayTags[0]] ? nftPlayTags[0] : '';
     }
 
     // Indices into nftGallery that the filter admits. Order is gallery order, so a filtered
@@ -2427,9 +2448,9 @@ SOL,100</pre></div>
     // as selected, and anything keyed on the selection (the list filter, the delete button)
     // was unreachable. Callers handle an empty set instead.
     function playableNftIndices() {
-        if (!nftPlayTag) return nftGallery.map((_, i) => i);
+        if (!nftPlayScoped()) return nftGallery.map((_, i) => i);
         const out = [];
-        nftGallery.forEach((u, i) => { if (nftHasTag(u, nftPlayTag)) out.push(i); });
+        nftGallery.forEach((u, i) => { if (nftPlayTags.some(t => nftHasTag(u, t))) out.push(i); });
         return out;
     }
     function playableNftCount() { return playableNftIndices().length; }
@@ -2456,14 +2477,28 @@ SOL,100</pre></div>
         return list[nextShuffledIdx(at === -1 ? 0 : at, list.length)];
     }
 
-    function setNftPlayTag(tag) {
-        const next = tag === NFT_TAG_NEW_OPTION ? '' : (tag || '');
-        if (next === nftPlayTag) return;
-        nftPlayTag = next;
-        saveNftPlayTag();
+    // Replaces the whole selection. Pass '' or [] for the whole gallery.
+    function setNftPlayTags(tags) {
+        const next = (Array.isArray(tags) ? tags : (tags ? [tags] : []))
+            .filter(t => t && t !== NFT_TAG_NEW_OPTION);
+        if (next.join('|') === nftPlayTags.join('|')) return;
+        nftPlayTags = next;
+        applyNftPlayTagChange();
+    }
+    // Adds or removes one tag, which is what clicking a chip in the picker does.
+    function toggleNftPlayTag(tag) {
+        if (!tag || tag === NFT_TAG_NEW_OPTION) { setNftPlayTags([]); return; }
+        nftPlayTags = isNftPlayTag(tag) ? nftPlayTags.filter(t => t !== tag) : nftPlayTags.concat([tag]);
+        applyNftPlayTagChange();
+    }
+    // Back-compat shim: single-tag callers (the list dropdown) still read naturally.
+    function setNftPlayTag(tag) { setNftPlayTags(tag); }
+
+    function applyNftPlayTagChange() {
+        saveNftPlayTags();
         nftShuffleBag = []; nftShuffleBagFor = '';   // a different set needs a fresh shuffle bag
         // Land on something the filter admits rather than sitting on a hidden NFT.
-        if (nftPlayTag) {
+        if (nftPlayScoped()) {
             const list = playableNftIndices();
             if (list.length && list.indexOf(nftIdx) === -1) nftIdx = list[0];
             if (list.length && list.indexOf(overlayNftIdx) === -1) overlayNftIdx = list[0];
@@ -2489,7 +2524,10 @@ SOL,100</pre></div>
     // filtered slideshow, which would otherwise look like most of the gallery had vanished.
     function syncNftPlayTagUI() {
         const sel = document.getElementById('nftTableTagFilter');
-        if (sel && sel.value !== nftPlayTag) sel.value = nftPlayTag;
+        if (sel) {
+            const want = nftPlayTags.length === 1 ? nftPlayTags[0] : (nftPlayTags.length ? NFT_TAG_MANY_OPTION : '');
+            if (sel.value !== want) sel.value = want;
+        }
 
         const bar = document.getElementById('nftPlayTagBar');
         if (!bar) return;
@@ -2497,36 +2535,50 @@ SOL,100</pre></div>
         // walks the gallery once for every tag on it.
         const tags = allNftTags().filter(t => t.count > 0 || t.custom);
         // One tag means no choice to offer, and no filter can be active.
-        if (tags.length < 2 && !nftPlayTag) { bar.style.display = 'none'; return; }
+        if (tags.length < 2 && !nftPlayScoped()) { bar.style.display = 'none'; return; }
         bar.style.display = 'flex';
         bar.innerHTML = '';
 
         const chip = (name, label, count, color, active) => {
             const b = document.createElement('button');
             b.className = 'nft-play-tag';
-            b.title = name ? 'Watch only ' + nftTagLabel(name) + ' (' + count + ')' : 'Watch the whole gallery';
+            b.title = name
+                ? (active ? 'Stop showing ' : 'Add ') + nftTagLabel(name) + ' (' + count + ')' +
+                  (active && nftPlayTags.length === 1 ? ' — leaves the whole gallery showing' : '')
+                : 'Watch the whole gallery';
             b.innerHTML = escapeHtml(label) + ' <span class="nft-play-tag-n">' + count + '</span>';
             if (active) {
                 b.style.background = color + '26';
                 b.style.borderColor = color + '99';
                 b.style.color = color;
             }
-            b.addEventListener('click', () => { setNftPlayTag(name); renderReorderTable(); });
+            // Chips add and remove rather than replace, so several can play together.
+            b.addEventListener('click', () => { toggleNftPlayTag(name); renderReorderTable(); });
             bar.appendChild(b);
         };
 
-        chip('', 'All', nftGallery.length, '#00d4ff', !nftPlayTag);
-        tags.forEach(t => chip(t.name, nftTagShortLabel(t.name), t.count, t.color, nftPlayTag === t.name));
+        chip('', 'All', nftGallery.length, '#00d4ff', !nftPlayScoped());
+        tags.forEach(t => chip(t.name, nftTagShortLabel(t.name), t.count, t.color, isNftPlayTag(t.name)));
+
+        // Combined total, since with several tags on, no single chip's count is the answer.
+        if (nftPlayTags.length > 1) {
+            const sum = document.createElement('span');
+            sum.style.cssText = 'font-size:0.6rem;color:#8a8a99;align-self:center;padding-left:2px';
+            sum.textContent = '= ' + playableNftCount();
+            bar.appendChild(sum);
+        }
 
         // Deleting a tag belongs next to selecting one. Anywhere else and a tag applied to
         // nothing — which is exactly the tag you most want to get rid of — is hard to reach,
-        // because it shows no rows and appears on no NFT's menu.
-        if (nftTagDefs[nftPlayTag]) {
+        // because it shows no rows and appears on no NFT's menu. Only with exactly one custom
+        // tag selected, or it would be ambiguous which one it deletes.
+        const lone = loneCustomPlayTag();
+        if (lone) {
             const del = document.createElement('button');
             del.className = 'nft-play-tag nft-play-tag-del';
             del.innerHTML = '🗑 Delete tag';
-            del.title = 'Delete the "' + nftTagLabel(nftPlayTag) + '" tag. The NFTs themselves are kept.';
-            del.addEventListener('click', () => deleteNftTagByName(nftPlayTag));
+            del.title = 'Delete the "' + nftTagLabel(lone) + '" tag. The NFTs themselves are kept.';
+            del.addEventListener('click', () => deleteNftTagByName(lone));
             bar.appendChild(del);
         }
     }
@@ -2540,7 +2592,8 @@ SOL,100</pre></div>
         if (!confirm('Delete the "' + label + '" tag?\n\n' +
             (n > 0 ? 'It comes off ' + n + ' NFT' + (n !== 1 ? 's' : '') + '. ' : 'Nothing is tagged with it. ') +
             'The NFTs themselves are not deleted.')) return;
-        if (nftPlayTag === tag) setNftPlayTag('');   // never leave the gallery scoped to a tag that is gone
+        // Never leave the gallery scoped to a tag that is gone; other selected tags stay.
+        if (isNftPlayTag(tag)) setNftPlayTags(nftPlayTags.filter(t => t !== tag));
         deleteNftTagEverywhere(tag);
         syncNftPlayTagUI();
         updateNFTDisplay();
@@ -2714,7 +2767,7 @@ SOL,100</pre></div>
         loadNftMeta();
         loadNftTags();
         loadNftValueManual();
-        loadNftPlayTag();
+        loadNftPlayTags();
         loadNftFloorAuto();
         restoreNftFloorAutoTimers();
         bindNftViewerTagging();
@@ -8183,7 +8236,7 @@ SOL,100</pre></div>
             viewer.style.display = 'none';
             if (tagEmpty) {
                 tagEmpty.style.display = 'block';
-                document.getElementById('nftTagEmptyName').textContent = nftTagLabel(nftPlayTag);
+                document.getElementById('nftTagEmptyName').textContent = nftPlayTagsLabel();
             }
             return;
         }
@@ -8622,9 +8675,14 @@ SOL,100</pre></div>
         const tagSel = document.getElementById('nftTableTagFilter');
         if (tagSel) {
             if (tagSel.value === NFT_TAG_NEW_OPTION) handleNewNftTagOption(tagSel);
-            // Picking a tag here scopes the whole gallery, not just this list — the slideshow,
-            // the fullscreen viewer, the screensaver and the collage all follow it.
-            setNftPlayTag(tagSel.value);
+            // Re-picking the "several tags" entry means "leave it as it is" — it only exists to
+            // describe the current state, and treating it as a choice would wipe the selection.
+            if (tagSel.value !== NFT_TAG_MANY_OPTION) {
+                // Picking a tag here scopes the whole gallery, not just this list — the
+                // slideshow, fullscreen viewer, screensaver and collage all follow it. The
+                // dropdown replaces the selection; the chips above the gallery add to it.
+                setNftPlayTags(tagSel.value);
+            }
         }
         nftTableJustPriced.clear();
         renderReorderGrid();
@@ -8862,7 +8920,6 @@ SOL,100</pre></div>
     function nftTableRows() {
         const onlyUnpriced = (document.getElementById('nftTableUnpricedOnly') || {}).checked;
         const q = ((document.getElementById('nftTableFilter') || {}).value || '').trim().toLowerCase();
-        const tag = nftTableTagFilter();
         let rows = nftGallery.map((url, idx) => ({
             idx, url,
             collection: nftCollectionOf(url),
@@ -8872,7 +8929,9 @@ SOL,100</pre></div>
             value: nftValues[url] || 0,
             tags: nftTagsOf(url),
         }));
-        if (tag) rows = rows.filter(r => r.tags.indexOf(tag) !== -1);
+        // The full set, not nftTableTagFilter() — that reports the single selected tag and is
+        // empty when several are on, which would silently stop filtering the list.
+        if (nftPlayScoped()) rows = rows.filter(r => nftPlayTags.some(t => r.tags.indexOf(t) !== -1));
         // A row priced during this pass stays put rather than vanishing mid-edit — otherwise
         // typing a value removes the row before you can hit "→ all" on it. Re-ticking the
         // checkbox (or clearing filters) drops them and shows what is genuinely left.
@@ -8911,8 +8970,13 @@ SOL,100</pre></div>
     }
 
     const NFT_TAG_NEW_OPTION = '__new_tag__';
+    // Shown only while several tags are on, so the single-select dropdown can represent a
+    // state it cannot itself produce instead of misreporting one of them.
+    const NFT_TAG_MANY_OPTION = '__many_tags__';
 
-    function nftTableTagFilter() { return nftPlayTag; }
+    // The single selected tag, for controls that need one subject. Empty when none or several
+    // are on — row filtering uses nftPlayTags directly, not this.
+    function nftTableTagFilter() { return nftPlayTags.length === 1 ? nftPlayTags[0] : ''; }
 
     // Rebuilds the tag dropdown. Chain tags come first and are always present; custom tags
     // follow. Counts are of the whole gallery, not the current view, so the number doesn't
@@ -8927,8 +8991,11 @@ SOL,100</pre></div>
         sel.innerHTML = '<option value="">All tags (' + nftGallery.length + ')</option>' +
             (chainTags.length ? '<optgroup label="Chain">' + chainTags.map(opt).join('') + '</optgroup>' : '') +
             (customTags.length ? '<optgroup label="Your tags">' + customTags.map(opt).join('') + '</optgroup>' : '') +
+            (nftPlayTags.length > 1
+                ? '<option value="' + NFT_TAG_MANY_OPTION + '">' + escapeHtml(nftPlayTagsLabel()) + ' (' + playableNftCount() + ')</option>'
+                : '') +
             '<option value="' + NFT_TAG_NEW_OPTION + '">＋ New tag…</option>';
-        sel.value = tags.some(t => t.name === nftPlayTag) ? nftPlayTag : '';
+        sel.value = nftPlayTags.length === 1 && tags.some(t => t.name === nftPlayTags[0]) ? nftPlayTags[0] : (nftPlayTags.length ? NFT_TAG_MANY_OPTION : '');
     }
 
     // Picking "＋ New tag…" in the filter creates a tag rather than filtering by one. It is
@@ -8951,8 +9018,9 @@ SOL,100</pre></div>
         const keep = sel.value;
         // The tag filter scopes the collection list: a collection with nothing carrying the
         // selected tag isn't offered at all, rather than being offered and yielding no rows.
-        const tag = nftTableTagFilter();
-        const scoped = tag ? nftGallery.filter(u => nftHasTag(u, tag)) : nftGallery;
+        const scoped = nftPlayScoped()
+            ? nftGallery.filter(u => nftPlayTags.some(t => nftHasTag(u, t)))
+            : nftGallery;
         const colls = galleryCollections(scoped);
         sel.innerHTML = '<option value="">All collections (' + scoped.length + ')</option>' +
             colls.map(([c, n, v]) => '<option value="' + escapeHtml(c.toLowerCase()) + '">' + escapeHtml(c) + ' (' + n +
@@ -9182,8 +9250,7 @@ SOL,100</pre></div>
             // The two filters stack. Saying so is the difference between "70 still unpriced"
             // next to "Showing 1" reading as a bug and reading as a narrowed view.
             const why = [];
-            const tagFilter = nftTableTagFilter();
-            if (tagFilter) why.push('tag: ' + nftTagLabel(tagFilter));
+            if (nftPlayScoped()) why.push((nftPlayTags.length > 1 ? 'tags: ' : 'tag: ') + nftPlayTagsLabel());
             if (collFilter) why.push(sel.options[sel.selectedIndex].textContent.replace(/\s*\(.*\)$/, ''));
             if (unpricedOnly) why.push('unpriced only');
             const kept = unpricedOnly ? rows.filter(r => r.value > 0).length : 0;
@@ -9208,8 +9275,8 @@ SOL,100</pre></div>
                 // Tags are created from the dropdown above, so deleting one has to be reachable
                 // from here too — the ✕ inside a row's tag menu is the wrong place to go
                 // looking for it, and is invisible if the tag is on no NFTs yet.
-                (nftTagDefs[tagFilter]
-                    ? '<button class="nft-table-danger" onclick="deleteFilteredNftTag()">Delete the “' + escapeHtml(nftTagLabel(tagFilter)) + '” tag</button>'
+                (loneCustomPlayTag()
+                    ? '<button class="nft-table-danger" onclick="deleteFilteredNftTag()">Delete the “' + escapeHtml(nftTagLabel(loneCustomPlayTag())) + '” tag</button>'
                     : '') +
                 (collFilter ? '<button class="nft-table-danger"' + (why.length ? '' : ' style="margin-left:auto"') + ' onclick="deleteFilteredCollection()">Delete this whole collection</button>' : '');
         }
