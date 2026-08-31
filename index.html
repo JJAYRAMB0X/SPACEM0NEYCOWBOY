@@ -708,7 +708,15 @@
             font-family: inherit; text-align: center;
         }
         .nft-secs-input:focus { outline: none; border-color: rgba(0,212,255,0.55); }
-        .nft-btn.active { background: rgba(0,212,255,0.22); border-color: rgba(0,212,255,0.6); color: #00d4ff; }
+        /* Sits over dark artwork. A class, not an inline style, so .active can still win —
+           inline beat the stylesheet and the overlay's shuffle button could never look on. */
+        .nft-btn.on-dark { background: rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.3); }
+        /* Was a 0.15 -> 0.22 alpha nudge with no other change, which is invisible on a dark
+           background: the button worked and looked identical either way. */
+        .nft-btn.active, .nft-btn.on-dark.active {
+            background: rgba(0,212,255,0.4); border-color: #00d4ff; color: #eaffff;
+            box-shadow: 0 0 10px rgba(0,212,255,0.45), inset 0 0 0 1px rgba(0,212,255,0.5);
+        }
 
         /* ===== NFT REORDER ===== */
         .reorder-grid {
@@ -2097,8 +2105,8 @@ SOL,100</pre></div>
             <button class="nft-fs-arrow nft-fs-next" onclick="nextNFTOverlay()">&#8250;</button>
             <div class="nft-fs-value-overlay" id="overlayNftValueOverlay" onclick="startEditIndividualNftValue(overlayNftIdx, 'overlayNftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
             <div class="nft-fs-bottom">
-                <button class="nft-btn" id="overlaySlideshowBtn" onclick="toggleOverlaySlideshow()" style="background:rgba(0,0,0,0.5); border-color:rgba(255,255,255,0.3);">▶️ Play</button>
-                <button class="nft-btn" id="overlayShuffleBtn" onclick="toggleNftShuffle()" title="Shuffle" style="background:rgba(0,0,0,0.5); border-color:rgba(255,255,255,0.3);">🔀</button>
+                <button class="nft-btn on-dark" id="overlaySlideshowBtn" onclick="toggleOverlaySlideshow()">▶️ Play</button>
+                <button class="nft-btn on-dark" id="overlayShuffleBtn" onclick="toggleNftShuffle()" title="Shuffle">🔀</button>
                 <span class="nft-secs-wrap"><input type="number" id="overlaySlideSecsInput" class="nft-secs-input" min="1" max="3600" step="1" value="3" title="Seconds between NFTs" onchange="setNftSlideshowSecs(this.value)" onkeydown="event.stopPropagation(); if(event.key==='Enter'){this.blur();}"><span>s</span></span>
                 <div id="overlayNFTCounter" style="color:rgba(255,255,255,0.7); font-size:1rem;">1 / 1</div>
             </div>
@@ -8622,7 +8630,11 @@ SOL,100</pre></div>
         nftShuffleBag = []; nftShuffleBagFor = '';   // start a fresh pass
         saveNftSlideshowPrefs();
         syncNftSlideshowControls();
-        toast(nftSlideshowShuffle ? 'Shuffle on' : 'Shuffle off', 'info');
+        // Says where it applies: shuffle governs the slideshow, not the ◀ ▶ buttons, and
+        // "Shuffle on" alone left that to be guessed at.
+        toast(nftSlideshowShuffle
+            ? 'Shuffle on — the slideshow plays in random order'
+            : 'Shuffle off — the slideshow plays in gallery order', 'info');
     }
 
     function setNftSlideshowSecs(raw) {
