@@ -2634,13 +2634,15 @@ SOL,100</pre></div>
         chip('', 'All', nftGallery.length, '#00d4ff', !nftPlayScoped());
         tags.forEach(t => chip(t.name, nftTagShortLabel(t.name), t.count, t.color, isNftPlayTag(t.name)));
 
-        // Only with two or more tags: with one, ANY and ALL mean the same thing and the
+        // Only with two or more tags: with one, AND and OR mean the same thing and the
         // toggle would be a control that does nothing.
         if (nftPlayTags.length > 1) {
             const mode = document.createElement('span');
             mode.style.cssText = 'display:inline-flex;gap:3px;align-self:center;padding-left:4px';
-            [['or', 'ANY', 'Show NFTs carrying any of the selected tags'],
-             ['and', 'ALL', 'Show only NFTs carrying every selected tag — e.g. “moneymakers” that are also on Robinhood']
+            // AND/OR, in that order, to match the category filter above the constellation —
+            // it is the same operation, and two names for it in one app is just confusing.
+            [['and', 'AND', 'Show only NFTs carrying every selected tag — e.g. “moneymakers” that are also on Robinhood'],
+             ['or', 'OR', 'Show NFTs carrying any of the selected tags']
             ].forEach(([m, label, tip]) => {
                 const b = document.createElement('button');
                 b.className = 'nft-play-tag';
@@ -2657,7 +2659,7 @@ SOL,100</pre></div>
             bar.appendChild(mode);
 
             // Combined total: with several tags on, no single chip's count is the answer, and
-            // under ALL it can be smaller than any of them.
+            // under AND it can be smaller than any of them.
             const sum = document.createElement('span');
             sum.style.cssText = 'font-size:0.6rem;color:#8a8a99;align-self:center;padding-left:2px';
             sum.textContent = '= ' + playableNftCount();
