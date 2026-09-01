@@ -1220,6 +1220,25 @@
                 <div id="totalBreakdown" style="display:none; font-size:0.63rem; color:#555; margin-top:3px; letter-spacing:0.2px;"></div>
             </div>
 
+            <!-- Monitoring the Situation Widget -->
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('monitor')">
+                    <div class="section-title"><span>📡</span><span>Monitoring the Situation</span></div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="nft-btn" onclick="event.stopPropagation(); openWatchModal()" title="Add a project to watch" style="padding:4px 8px; font-size:0.8rem;">➕ Add</button>
+                        <div class="section-toggle" id="monitorToggle">▼</div>
+                    </div>
+                </div>
+                <div class="section-body" id="monitorBody">
+                    <div class="mon-sort-bar">
+                        <button class="mon-sort-btn" data-mon-sort="alpha" onclick="setWatchSort('alpha')" title="Sort by name">A–Z</button>
+                        <button class="mon-sort-btn active" data-mon-sort="tier" onclick="setWatchSort('tier')" title="Sort by the importance tier you set">⭐ Tier</button>
+                        <button class="mon-sort-btn" data-mon-sort="value" onclick="setWatchSort('value')" title="Sort by what the linked token or NFT is worth">💰 Value</button>
+                    </div>
+                    <div id="watchList" class="mon-list"></div>
+                </div>
+            </div>
+
             <!-- Add Token -->
             <div class="glass-card input-section">
                 <div class="input-row">
@@ -1394,25 +1413,6 @@
                     <button class="btn btn-primary btn-full" onclick="doResearch()">🤖 Research</button>
                     <div id="searchResults" class="search-results" style="display:none"></div>
                     <div style="font-size:0.7rem; color:#555; text-align:center; margin-top:6px;">Opens Google search + quick research links</div>
-                </div>
-            </div>
-
-            <!-- Monitoring the Situation Widget -->
-            <div class="glass-card">
-                <div class="section-header" onclick="toggleSection('monitor')">
-                    <div class="section-title"><span>📡</span><span>Monitoring the Situation</span></div>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <button class="nft-btn" onclick="event.stopPropagation(); openWatchModal()" title="Add a project to watch" style="padding:4px 8px; font-size:0.8rem;">➕ Add</button>
-                        <div class="section-toggle" id="monitorToggle">▼</div>
-                    </div>
-                </div>
-                <div class="section-body" id="monitorBody">
-                    <div class="mon-sort-bar">
-                        <button class="mon-sort-btn" data-mon-sort="alpha" onclick="setWatchSort('alpha')" title="Sort by name">A–Z</button>
-                        <button class="mon-sort-btn active" data-mon-sort="tier" onclick="setWatchSort('tier')" title="Sort by the importance tier you set">⭐ Tier</button>
-                        <button class="mon-sort-btn" data-mon-sort="value" onclick="setWatchSort('value')" title="Sort by what the linked token or NFT is worth">💰 Value</button>
-                    </div>
-                    <div id="watchList" class="mon-list"></div>
                 </div>
             </div>
         </div>
