@@ -235,6 +235,10 @@
         }
         .section-body { max-height: 2000px; overflow: hidden; transition: max-height 0.3s, opacity 0.3s; opacity: 1; }
         .section-body.collapsed { max-height: 0; opacity: 0; }
+        /* Cards whose content is allowed to escape them — the search autocomplete, the
+           donation popup. Clipping stays on while collapsing, or the content would not
+           appear to slide away; toggleSection lifts it once the card is open. */
+        .section-body.pop-safe.open { overflow: visible; }
 
         /* ===== CATEGORY STATS ===== */
         .stat-bubble {
@@ -1243,29 +1247,35 @@
 
             <!-- Add Token -->
             <div class="glass-card input-section">
-                <div class="input-row">
-                    <div class="input-group" style="flex:1; position:relative;">
-                        <label class="input-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <span style="display:inline-flex;align-items:center;gap:8px">Token or Stock <span class="help-icon" onclick="showModal('helpModal')" title="Search tips">?</span></span>
-                            <span id="portfolioCount" style="font-size:0.65rem;color:#666;font-weight:400;letter-spacing:0"></span>
-                        </label>
-                        <input type="text" id="tokenInput" class="token-input" placeholder="Search token or ticker, paste contract..." autocomplete="off" style="width:100%">
-                        <div class="autocomplete-dropdown" id="acDropdown"></div>
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Amount</label>
-                        <input type="number" id="amountInput" class="amount-input" placeholder="0.0" step="any">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">&nbsp;</label>
-                        <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                            <button class="btn btn-primary" id="addTokenBtn">Add</button>
-                            <button class="btn btn-orange" onclick="showModal('manualChooserModal')" title="Add token or stock manually">+ Manual</button>
+                <div class="section-header" onclick="toggleSection('addToken')">
+                    <div class="section-title"><span>➕</span><span>Add Token</span></div>
+                    <div class="section-toggle" id="addTokenToggle">▼</div>
+                </div>
+                <div class="section-body pop-safe open" id="addTokenBody">
+                    <div class="input-row">
+                        <div class="input-group" style="flex:1; position:relative;">
+                            <label class="input-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                <span style="display:inline-flex;align-items:center;gap:8px">Token or Stock <span class="help-icon" onclick="showModal('helpModal')" title="Search tips">?</span></span>
+                                <span id="portfolioCount" style="font-size:0.65rem;color:#666;font-weight:400;letter-spacing:0"></span>
+                            </label>
+                            <input type="text" id="tokenInput" class="token-input" placeholder="Search token or ticker, paste contract..." autocomplete="off" style="width:100%">
+                            <div class="autocomplete-dropdown" id="acDropdown"></div>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Amount</label>
+                            <input type="number" id="amountInput" class="amount-input" placeholder="0.0" step="any">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">&nbsp;</label>
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button class="btn btn-primary" id="addTokenBtn">Add</button>
+                                <button class="btn btn-orange" onclick="showModal('manualChooserModal')" title="Add token or stock manually">+ Manual</button>
+                            </div>
                         </div>
                     </div>
+                    <div class="status-msg" id="statusMsg"></div>
+                    <div style="font-size:0.7rem;color:#555;margin-top:4px;text-align:center">For Metals & Cash, use <strong style="color:#ff8c00">+ Manual</strong></div>
                 </div>
-                <div class="status-msg" id="statusMsg"></div>
-                <div style="font-size:0.7rem;color:#555;margin-top:4px;text-align:center">For Metals & Cash, use <strong style="color:#ff8c00">+ Manual</strong></div>
             </div>
 
             <!-- Sort Controls -->
@@ -1279,12 +1289,6 @@
                     <button class="sort-btn" data-sort="whaleScore" onclick="toggleSort('whaleScore')">Whale <span class="sort-arrow">↓</span></button>
                     <button class="sort-btn" data-sort="priceChange" onclick="toggleSort('priceChange')">24h Chg <span class="sort-arrow">↓</span></button>
                 </div>
-            </div>
-
-            <!-- AND/OR Filter Toggle -->
-            <div class="filter-toggle" id="filterToggle">
-                <button class="filter-toggle-btn active" data-mode="and" onclick="setFilterMode('and')">AND</button>
-                <button class="filter-toggle-btn" data-mode="or" onclick="setFilterMode('or')">OR</button>
             </div>
 
             <!-- Categories (collapsible) -->
@@ -1304,39 +1308,51 @@
                     <div class="section-toggle collapsed" id="categoriesToggle" onclick="toggleSection('categories')" style="cursor:pointer">▼</div>
                 </div>
                 <div class="section-body collapsed" id="categoriesBody">
+                    <!-- How several picked categories combine — it belongs with the bubbles it
+                         acts on, not floating between two cards. -->
+                    <div class="filter-toggle" id="filterToggle" style="margin-bottom:10px">
+                        <button class="filter-toggle-btn active" data-mode="and" onclick="setFilterMode('and')">AND</button>
+                        <button class="filter-toggle-btn" data-mode="or" onclick="setFilterMode('or')">OR</button>
+                    </div>
                     <div id="statsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
                 </div>
             </div>
 
             <!-- Actions -->
-            <div class="glass-card actions-grid">
-                <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
-                <div style="display:flex;gap:6px">
-                    <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
-                    <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('actions')">
+                    <div class="section-title"><span>⚙️</span><span>Operations</span></div>
+                    <div class="section-toggle" id="actionsToggle">▼</div>
                 </div>
-                <input type="file" id="csvInput" class="file-input" accept=".csv">
-                <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
-                <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
-                <div class="branding" id="brandingEl">
-                    <span class="branding-inner">⚔️ Powered by JohnJay</span>
-                    <div class="donation-popup" id="donationPopup">
-                        <div class="dp-title">✨ Support the Dev ✨</div>
-                        <div class="dp-chain">
-                            <div class="dp-chain-label">⬡ EVM / ETH / BSC</div>
-                            <div class="dp-addr-row">
-                                <span class="dp-addr" title="0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9">0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9</span>
-                                <button class="dp-copy" onclick="dpCopy(this,'0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9')">Copy</button>
+                <div class="section-body pop-safe actions-grid open" id="actionsBody">
+                    <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
+                    <div style="display:flex;gap:6px">
+                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
+                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
+                    </div>
+                    <input type="file" id="csvInput" class="file-input" accept=".csv">
+                    <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
+                    <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
+                    <div class="branding" id="brandingEl">
+                        <span class="branding-inner">⚔️ Powered by JohnJay</span>
+                        <div class="donation-popup" id="donationPopup">
+                            <div class="dp-title">✨ Support the Dev ✨</div>
+                            <div class="dp-chain">
+                                <div class="dp-chain-label">⬡ EVM / ETH / BSC</div>
+                                <div class="dp-addr-row">
+                                    <span class="dp-addr" title="0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9">0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9</span>
+                                    <button class="dp-copy" onclick="dpCopy(this,'0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9')">Copy</button>
+                                </div>
                             </div>
-                        </div>
-                        <div class="dp-chain">
-                            <div class="dp-chain-label">◎ Solana</div>
-                            <div class="dp-addr-row">
-                                <span class="dp-addr" title="CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL">CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL</span>
-                                <button class="dp-copy" onclick="dpCopy(this,'CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL')">Copy</button>
+                            <div class="dp-chain">
+                                <div class="dp-chain-label">◎ Solana</div>
+                                <div class="dp-addr-row">
+                                    <span class="dp-addr" title="CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL">CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL</span>
+                                    <button class="dp-copy" onclick="dpCopy(this,'CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL')">Copy</button>
+                                </div>
                             </div>
+                            <div class="dp-footer"><span class="dp-hearts">💜</span> Every bit helps, thank you! <span class="dp-hearts">💜</span></div>
                         </div>
-                        <div class="dp-footer"><span class="dp-hearts">💜</span> Every bit helps, thank you! <span class="dp-hearts">💜</span></div>
                     </div>
                 </div>
             </div>
@@ -8171,6 +8187,12 @@ SOL,100</pre></div>
         const toggle = document.getElementById(id + 'Toggle');
         const collapsed = body.classList.toggle('collapsed');
         toggle.classList.toggle('collapsed', collapsed);
+        // Content allowed to overhang its card may only escape once the card has finished
+        // opening — mid-slide it still has to be clipped, or it hangs in mid-air.
+        if (body.classList.contains('pop-safe')) {
+            if (collapsed) body.classList.remove('open');
+            else setTimeout(() => { if (!body.classList.contains('collapsed')) body.classList.add('open'); }, 320);
+        }
         // Auto-load news on first expand
         if (id === 'newsFeed' && !collapsed && allNews.length === 0) loadNews();
         // Categories sort button is only meaningful when the bubbles are visible
