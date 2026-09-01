@@ -1242,6 +1242,45 @@
                 </div>
             </div>
 
+            <!-- Actions -->
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('actions')">
+                    <div class="section-title"><span>⚙️</span><span>Operations</span></div>
+                    <div class="section-toggle" id="actionsToggle">▼</div>
+                </div>
+                <div class="section-body pop-safe actions-grid open" id="actionsBody">
+                    <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
+                    <div style="display:flex;gap:6px">
+                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
+                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
+                    </div>
+                    <input type="file" id="csvInput" class="file-input" accept=".csv">
+                    <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
+                    <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
+                    <div class="branding" id="brandingEl">
+                        <span class="branding-inner">⚔️ Powered by JohnJay</span>
+                        <div class="donation-popup" id="donationPopup">
+                            <div class="dp-title">✨ Support the Dev ✨</div>
+                            <div class="dp-chain">
+                                <div class="dp-chain-label">⬡ EVM / ETH / BSC</div>
+                                <div class="dp-addr-row">
+                                    <span class="dp-addr" title="0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9">0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9</span>
+                                    <button class="dp-copy" onclick="dpCopy(this,'0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9')">Copy</button>
+                                </div>
+                            </div>
+                            <div class="dp-chain">
+                                <div class="dp-chain-label">◎ Solana</div>
+                                <div class="dp-addr-row">
+                                    <span class="dp-addr" title="CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL">CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL</span>
+                                    <button class="dp-copy" onclick="dpCopy(this,'CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL')">Copy</button>
+                                </div>
+                            </div>
+                            <div class="dp-footer"><span class="dp-hearts">💜</span> Every bit helps, thank you! <span class="dp-hearts">💜</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Monitoring the Situation Widget -->
             <div class="glass-card">
                 <div class="section-header" onclick="toggleSection('monitor')">
@@ -1258,6 +1297,53 @@
                         <button class="mon-sort-btn" data-mon-sort="value" onclick="setWatchSort('value')" title="Sort by what the linked token or NFT is worth">💰 Value</button>
                     </div>
                     <div id="watchList" class="mon-list"></div>
+                </div>
+            </div>
+
+            <!-- NFT Gallery Widget -->
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('nftGallery')">
+                    <div class="section-title"><span>🖼️</span><span>NFT Gallery</span></div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="nft-btn" onclick="event.stopPropagation(); expandNFT()" title="Open Fullscreen Gallery" style="padding:4px 8px; font-size:0.8rem;">⛶ Fullscreen</button>
+                        <div class="section-toggle" id="nftGalleryToggle">▼</div>
+                    </div>
+                </div>
+                <div class="section-body" id="nftGalleryBody">
+                    <button class="btn btn-primary btn-full" onclick="openAddNFTModal()" style="margin-bottom:12px">➕ Add NFT</button>
+                    <!-- Every tag, as a picker: what the gallery, slideshow, screensaver and
+                         collage are scoped to. Filled by syncNftPlayTagUI. -->
+                    <div id="nftPlayTagBar" class="nft-play-tag-bar" style="display:none"></div>
+                    <div id="nftViewer" class="nft-viewer" style="display:none">
+                        <div class="nft-img-wrap">
+                            <img id="nftImg" class="nft-img" src="" alt="NFT">
+                            <div class="nft-value-overlay" id="nftValueOverlay" onclick="startEditIndividualNftValue(nftIdx, 'nftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
+                        </div>
+                        <div class="nft-controls">
+                            <button class="nft-btn" onclick="openNFTReorder()" title="Manage NFTs — prices, sorting, artwork, export">☰</button>
+                            <button class="nft-btn" onclick="prevNFT()">◀</button>
+                            <button class="nft-btn" id="slideshowBtn" onclick="toggleSlideshow()">▶️ Play</button>
+                            <button class="nft-btn" onclick="nextNFT()">▶</button>
+                            <button class="nft-btn" id="nftShuffleBtn" onclick="toggleNftShuffle()" title="Shuffle">🔀</button>
+                            <span class="nft-secs-wrap"><input type="number" id="nftSlideSecsInput" class="nft-secs-input" min="1" max="3600" step="1" value="3" title="Seconds between NFTs" onchange="setNftSlideshowSecs(this.value)" onkeydown="event.stopPropagation(); if(event.key==='Enter'){this.blur();}"><span>s</span></span>
+                            <button class="nft-btn danger" onclick="deleteNFT()">🗑️</button>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
+                            <div class="nft-counter" id="nftCounter" style="margin:0">1 / 1</div>
+                            <div id="nftEstValueDisplay" style="display:flex;align-items:center;gap:4px;font-size:0.75rem"></div>
+                        </div>
+                    </div>
+                    <div id="nftEmpty" style="text-align:center; padding:24px; color:#555;">
+                        <div style="font-size:2rem; margin-bottom:6px;">🖼️</div>
+                        <div style="font-size:0.8rem;">No NFTs yet — add your favorites!</div>
+                    </div>
+                    <!-- A tag that admits nothing: say so plainly instead of showing the whole
+                         gallery, which would make the tag look like it did nothing. -->
+                    <div id="nftTagEmpty" style="display:none;text-align:center; padding:24px; color:#555;">
+                        <div style="font-size:2rem; margin-bottom:6px;">🏷️</div>
+                        <div style="font-size:0.8rem;">Nothing tagged <strong id="nftTagEmptyName" style="color:#8a8a99"></strong> yet</div>
+                        <div style="font-size:0.7rem;margin-top:6px;color:#556">Right-click any NFT to tag it, or pick <strong>All</strong> above</div>
+                    </div>
                 </div>
             </div>
 
@@ -1321,45 +1407,6 @@
                 </div>
             </div>
 
-            <!-- Actions -->
-            <div class="glass-card">
-                <div class="section-header" onclick="toggleSection('actions')">
-                    <div class="section-title"><span>⚙️</span><span>Operations</span></div>
-                    <div class="section-toggle" id="actionsToggle">▼</div>
-                </div>
-                <div class="section-body pop-safe actions-grid open" id="actionsBody">
-                    <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
-                    <div style="display:flex;gap:6px">
-                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
-                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
-                    </div>
-                    <input type="file" id="csvInput" class="file-input" accept=".csv">
-                    <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
-                    <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
-                    <div class="branding" id="brandingEl">
-                        <span class="branding-inner">⚔️ Powered by JohnJay</span>
-                        <div class="donation-popup" id="donationPopup">
-                            <div class="dp-title">✨ Support the Dev ✨</div>
-                            <div class="dp-chain">
-                                <div class="dp-chain-label">⬡ EVM / ETH / BSC</div>
-                                <div class="dp-addr-row">
-                                    <span class="dp-addr" title="0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9">0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9</span>
-                                    <button class="dp-copy" onclick="dpCopy(this,'0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9')">Copy</button>
-                                </div>
-                            </div>
-                            <div class="dp-chain">
-                                <div class="dp-chain-label">◎ Solana</div>
-                                <div class="dp-addr-row">
-                                    <span class="dp-addr" title="CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL">CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL</span>
-                                    <button class="dp-copy" onclick="dpCopy(this,'CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL')">Copy</button>
-                                </div>
-                            </div>
-                            <div class="dp-footer"><span class="dp-hearts">💜</span> Every bit helps, thank you! <span class="dp-hearts">💜</span></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- News Feed Widget -->
             <div class="glass-card">
                 <div class="section-header" onclick="toggleSection('newsFeed')">
@@ -1373,53 +1420,6 @@
                     <div id="newsLoading" onclick="loadNews()" title="Load headlines now" style="text-align:center; padding:16px; color:#555; font-size:0.85rem; cursor:pointer;">📰 Click to load headlines</div>
                     <div id="newsList" class="news-list" style="display:none"></div>
                     <button class="btn btn-primary btn-full" id="loadMoreBtn" onclick="loadNews()" style="margin-top:8px; display:none">📰 Load More</button>
-                </div>
-            </div>
-
-            <!-- NFT Gallery Widget -->
-            <div class="glass-card">
-                <div class="section-header" onclick="toggleSection('nftGallery')">
-                    <div class="section-title"><span>🖼️</span><span>NFT Gallery</span></div>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <button class="nft-btn" onclick="event.stopPropagation(); expandNFT()" title="Open Fullscreen Gallery" style="padding:4px 8px; font-size:0.8rem;">⛶ Fullscreen</button>
-                        <div class="section-toggle" id="nftGalleryToggle">▼</div>
-                    </div>
-                </div>
-                <div class="section-body" id="nftGalleryBody">
-                    <button class="btn btn-primary btn-full" onclick="openAddNFTModal()" style="margin-bottom:12px">➕ Add NFT</button>
-                    <!-- Every tag, as a picker: what the gallery, slideshow, screensaver and
-                         collage are scoped to. Filled by syncNftPlayTagUI. -->
-                    <div id="nftPlayTagBar" class="nft-play-tag-bar" style="display:none"></div>
-                    <div id="nftViewer" class="nft-viewer" style="display:none">
-                        <div class="nft-img-wrap">
-                            <img id="nftImg" class="nft-img" src="" alt="NFT">
-                            <div class="nft-value-overlay" id="nftValueOverlay" onclick="startEditIndividualNftValue(nftIdx, 'nftValueOverlay')" title="Click to set this NFT's value">Click to set value</div>
-                        </div>
-                        <div class="nft-controls">
-                            <button class="nft-btn" onclick="openNFTReorder()" title="Manage NFTs — prices, sorting, artwork, export">☰</button>
-                            <button class="nft-btn" onclick="prevNFT()">◀</button>
-                            <button class="nft-btn" id="slideshowBtn" onclick="toggleSlideshow()">▶️ Play</button>
-                            <button class="nft-btn" onclick="nextNFT()">▶</button>
-                            <button class="nft-btn" id="nftShuffleBtn" onclick="toggleNftShuffle()" title="Shuffle">🔀</button>
-                            <span class="nft-secs-wrap"><input type="number" id="nftSlideSecsInput" class="nft-secs-input" min="1" max="3600" step="1" value="3" title="Seconds between NFTs" onchange="setNftSlideshowSecs(this.value)" onkeydown="event.stopPropagation(); if(event.key==='Enter'){this.blur();}"><span>s</span></span>
-                            <button class="nft-btn danger" onclick="deleteNFT()">🗑️</button>
-                        </div>
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
-                            <div class="nft-counter" id="nftCounter" style="margin:0">1 / 1</div>
-                            <div id="nftEstValueDisplay" style="display:flex;align-items:center;gap:4px;font-size:0.75rem"></div>
-                        </div>
-                    </div>
-                    <div id="nftEmpty" style="text-align:center; padding:24px; color:#555;">
-                        <div style="font-size:2rem; margin-bottom:6px;">🖼️</div>
-                        <div style="font-size:0.8rem;">No NFTs yet — add your favorites!</div>
-                    </div>
-                    <!-- A tag that admits nothing: say so plainly instead of showing the whole
-                         gallery, which would make the tag look like it did nothing. -->
-                    <div id="nftTagEmpty" style="display:none;text-align:center; padding:24px; color:#555;">
-                        <div style="font-size:2rem; margin-bottom:6px;">🏷️</div>
-                        <div style="font-size:0.8rem;">Nothing tagged <strong id="nftTagEmptyName" style="color:#8a8a99"></strong> yet</div>
-                        <div style="font-size:0.7rem;margin-top:6px;color:#556">Right-click any NFT to tag it, or pick <strong>All</strong> above</div>
-                    </div>
                 </div>
             </div>
 
