@@ -470,6 +470,73 @@
         .news-meta { display: flex; justify-content: space-between; font-size: 0.7rem; color: #555; }
         .news-source { color: #00d4ff; }
 
+        /* ===== MONITORING THE SITUATION ===== */
+        /* A ranked launchpad, not a reader: X gives no free way to read a timeline, so each
+           row is the team's face, your tier, and one click through to their account. */
+        .mon-sort-bar { display: flex; gap: 4px; margin-bottom: 10px; }
+        .mon-sort-btn {
+            flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px; padding: 5px 6px; color: #777; font-size: 0.68rem; font-weight: 600;
+            cursor: pointer; font-family: inherit; transition: all 0.25s; white-space: nowrap;
+        }
+        .mon-sort-btn:hover { background: rgba(0,212,255,0.1); color: #bbb; }
+        .mon-sort-btn.active { background: rgba(0,212,255,0.15); border-color: rgba(0,212,255,0.4); color: #00d4ff; }
+        .mon-list { max-height: 420px; overflow-y: auto; }
+        .mon-item {
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; padding: 9px 10px; margin-bottom: 8px; transition: all 0.25s;
+        }
+        .mon-item:hover { background: rgba(255,255,255,0.08); border-color: rgba(0,212,255,0.3); transform: translateX(3px); }
+        .mon-avatar {
+            width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; object-fit: cover;
+            background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12);
+        }
+        /* Stand-in when the handle has no picture to pull, or the pull fails outright. */
+        .mon-mono {
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; font-weight: 700; color: rgba(255,255,255,0.85); letter-spacing: 0.5px;
+        }
+        .mon-body { flex: 1; min-width: 0; }
+        .mon-name { font-size: 0.85rem; font-weight: 600; color: #eee; text-decoration: none; display: block; }
+        .mon-item:hover .mon-name { color: #00d4ff; }
+        .mon-sub { display: flex; gap: 8px; align-items: center; font-size: 0.68rem; color: #555; margin-top: 3px; }
+        .mon-handle { color: #667; }
+        .mon-hold { color: #10b981; font-weight: 600; }
+        .mon-tier {
+            flex-shrink: 0; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.5px;
+            border-radius: 5px; padding: 2px 6px; text-transform: uppercase; white-space: nowrap;
+        }
+        .mon-tier.t5 { background: rgba(239,68,68,0.18);  color: #f87171; }
+        .mon-tier.t4 { background: rgba(249,115,22,0.16); color: #fb923c; }
+        .mon-tier.t3 { background: rgba(234,179,8,0.15);  color: #eab308; }
+        .mon-tier.t2 { background: rgba(59,130,246,0.15); color: #60a5fa; }
+        .mon-tier.t1 { background: rgba(255,255,255,0.07); color: #8a8a99; }
+        .mon-actions { display: flex; gap: 3px; flex-shrink: 0; opacity: 0; transition: opacity 0.2s; }
+        .mon-item:hover .mon-actions { opacity: 1; }
+        .mon-act {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 6px; padding: 3px 6px; font-size: 0.7rem; cursor: pointer;
+            color: #999; font-family: inherit; transition: all 0.2s; line-height: 1;
+        }
+        .mon-act:hover { background: rgba(0,212,255,0.15); color: #00d4ff; }
+        .mon-act.danger:hover { background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+        .mon-empty { text-align: center; padding: 18px 10px; color: #555; font-size: 0.8rem; line-height: 1.6; }
+        /* Tier picker in the add/edit modal */
+        .mon-tier-row { display: flex; gap: 5px; margin-bottom: 4px; }
+        .mon-tier-opt {
+            flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px; padding: 8px 4px; cursor: pointer; text-align: center;
+            font-family: inherit; color: #777; transition: all 0.25s;
+        }
+        .mon-tier-opt:hover { background: rgba(255,255,255,0.1); color: #ccc; }
+        .mon-tier-opt.sel { background: rgba(0,212,255,0.15); border-color: rgba(0,212,255,0.45); color: #00d4ff; }
+        .mon-tier-num { font-size: 1rem; font-weight: 700; display: block; }
+        .mon-tier-lbl { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .mon-field-label { font-size: 0.72rem; color: #888; margin: 14px 0 6px; font-weight: 600; }
+        .mon-icon-row { display: flex; align-items: center; gap: 12px; }
+        .mon-icon-preview { width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0; }
+
         /* ===== NFT GALLERY ===== */
         .nft-viewer { text-align: center; }
         .nft-img { width: 100%; height: 280px; border-radius: 12px; object-fit: contain; background: rgba(0,0,0,0.3); }
@@ -810,6 +877,7 @@
         .share-hide-values .node-change,
         .share-hide-values .stat-value,
         .share-hide-values .total-value-amount,
+        .share-hide-values .mon-hold,
         .share-hide-values #totalBreakdown,
         .share-hide-values .cat-total-box .value,
         .share-hide-values #ssPortfolioValue,
@@ -1328,6 +1396,25 @@
                     <div style="font-size:0.7rem; color:#555; text-align:center; margin-top:6px;">Opens Google search + quick research links</div>
                 </div>
             </div>
+
+            <!-- Monitoring the Situation Widget -->
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('monitor')">
+                    <div class="section-title"><span>📡</span><span>Monitoring the Situation</span></div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="nft-btn" onclick="event.stopPropagation(); openWatchModal()" title="Add a project to watch" style="padding:4px 8px; font-size:0.8rem;">➕ Add</button>
+                        <div class="section-toggle" id="monitorToggle">▼</div>
+                    </div>
+                </div>
+                <div class="section-body" id="monitorBody">
+                    <div class="mon-sort-bar">
+                        <button class="mon-sort-btn" data-mon-sort="alpha" onclick="setWatchSort('alpha')" title="Sort by name">A–Z</button>
+                        <button class="mon-sort-btn active" data-mon-sort="tier" onclick="setWatchSort('tier')" title="Sort by the importance tier you set">⭐ Tier</button>
+                        <button class="mon-sort-btn" data-mon-sort="value" onclick="setWatchSort('value')" title="Sort by what the linked token or NFT is worth">💰 Value</button>
+                    </div>
+                    <div id="watchList" class="mon-list"></div>
+                </div>
+            </div>
         </div>
 
         <!-- DIVIDER -->
@@ -1590,6 +1677,50 @@
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="closeModal('notesModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveNotes()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Monitoring the Situation: add / edit -->
+    <div class="modal-overlay" id="watchModal">
+        <div class="modal" style="max-width:460px">
+            <div class="modal-title" id="watchModalTitle">📡 Add Project</div>
+            <div class="modal-subtitle">Paste the team's X link. Their profile picture is pulled automatically.</div>
+
+            <div class="mon-field-label">X link or handle</div>
+            <input type="text" id="watchUrlInput" placeholder="https://x.com/theproject  ·  or just @theproject" oninput="onWatchUrlInput()">
+
+            <div class="mon-field-label">Display name</div>
+            <input type="text" id="watchNameInput" placeholder="Fills in from the handle — edit if you like">
+
+            <div class="mon-field-label">Importance</div>
+            <div class="mon-tier-row" id="watchTierRow">
+                <button class="mon-tier-opt" data-tier="1" onclick="setWatchTier(1)"><span class="mon-tier-num">1</span><span class="mon-tier-lbl">Watching</span></button>
+                <button class="mon-tier-opt" data-tier="2" onclick="setWatchTier(2)"><span class="mon-tier-num">2</span><span class="mon-tier-lbl">Small</span></button>
+                <button class="mon-tier-opt" data-tier="3" onclick="setWatchTier(3)"><span class="mon-tier-num">3</span><span class="mon-tier-lbl">Medium</span></button>
+                <button class="mon-tier-opt" data-tier="4" onclick="setWatchTier(4)"><span class="mon-tier-num">4</span><span class="mon-tier-lbl">High</span></button>
+                <button class="mon-tier-opt" data-tier="5" onclick="setWatchTier(5)"><span class="mon-tier-num">5</span><span class="mon-tier-lbl">Core</span></button>
+            </div>
+
+            <div class="mon-field-label">Linked holding <span style="color:#555;font-weight:400">— optional, and what the Value sort ranks by</span></div>
+            <select id="watchLinkSelect"></select>
+
+            <div class="mon-field-label">Picture</div>
+            <div class="mon-icon-row">
+                <span id="watchIconPreview"></span>
+                <div style="flex:1">
+                    <div style="display:flex; gap:6px; flex-wrap:wrap">
+                        <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="document.getElementById('watchIconFile').click()">📁 Upload</button>
+                        <button class="btn btn-secondary" style="padding:6px 12px;font-size:0.75rem" onclick="clearWatchIcon()">↺ Use X picture</button>
+                    </div>
+                    <div id="watchIconHint" style="font-size:0.66rem;color:#555;margin-top:6px"></div>
+                </div>
+                <input type="file" id="watchIconFile" class="file-input" accept="image/*" onchange="onWatchIconFile(this)">
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('watchModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveWatchEntry()">Save</button>
             </div>
         </div>
     </div>
@@ -2934,6 +3065,7 @@ SOL,100</pre></div>
         loadNftScanWalletSel();
         loadNftCollSort();
         loadNftSlideshowPrefs();
+        loadWatchlist();
         syncNftSlideshowControls();
         loadNFTs();
         syncNftPlayTagUI();
@@ -3029,6 +3161,9 @@ SOL,100</pre></div>
         // Apply persisted hide-values state
         syncHideValuesBtn();
         applyHideValues();
+
+        // Last, so the Value sort has the loaded portfolio to read holdings from.
+        renderWatchlist();
     }
 
     function startAutoUpdate() {
@@ -8329,6 +8464,322 @@ SOL,100</pre></div>
             + '<a class="sr-link" href="https://www.google.com/search?q=' + encodeURIComponent(query + ' price prediction analysis') + '" target="_blank" rel="noopener">🔮 Analysis</a>'
             + '<a class="sr-link" href="https://www.reddit.com/search/?q=' + encodeURIComponent(searchQuery) + '&sort=new" target="_blank" rel="noopener">💬 Reddit</a>'
             + '</div></div>';
+    }
+
+    // ============================================================
+    // MONITORING THE SITUATION
+    // ============================================================
+    // X has no free way to read a timeline — reads start at a paid API tier — so this is a
+    // ranked launchpad rather than a feed: the team's own profile picture, the tier you gave
+    // them, and one click through to their account.
+    let watchlist = [];
+    let watchSort = 'tier';
+    let watchEditId = null;    // null while adding
+    let watchIconDraft = null; // uploaded picture, held until Save; null means use the X one
+
+    function saveWatchlist() {
+        try { localStorage.setItem(lsKey('watchlist'), JSON.stringify({ list: watchlist, sort: watchSort })); }
+        catch (e) {
+            // Uploaded pictures live in here, so a quota blowout is the one realistic failure.
+            console.error('Watchlist save failed:', e);
+            toast('Could not save — try a smaller picture', 'error');
+        }
+    }
+    function loadWatchlist() {
+        try {
+            const d = JSON.parse(localStorage.getItem(lsKey('watchlist')));
+            if (!d) return;
+            if (Array.isArray(d.list)) watchlist = d.list;
+            if (['alpha', 'tier', 'value'].indexOf(d.sort) !== -1) watchSort = d.sort;
+        } catch (e) {}
+    }
+
+    // Takes anything you might paste: a full profile URL, a link to one post, or a bare
+    // @handle. Everything after the handle is noise for our purposes.
+    function parseXHandle(raw) {
+        let s = (raw || '').trim();
+        if (!s) return '';
+        s = s.replace(/^@/, '');
+        const m = s.match(/^(?:https?:\/\/)?(?:www\.)?(?:twitter|x)\.com\/([A-Za-z0-9_]{1,15})/i);
+        if (m) return m[1];
+        if (/^[A-Za-z0-9_]{1,15}$/.test(s)) return s;
+        return '';
+    }
+
+    // A stable colour per project, so the stand-in tiles stay recognisable between loads.
+    function watchColor(seed) {
+        let h = 0;
+        for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+        return 'hsl(' + h + ', 45%, 32%)';
+    }
+    function watchInitials(name) {
+        const parts = (name || '?').trim().split(/[\s_-]+/).filter(Boolean);
+        if (!parts.length) return '?';
+        return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    function makeWatchMonogram(entry, cls) {
+        const span = document.createElement('span');
+        span.className = (cls || 'mon-avatar') + ' mon-mono';
+        span.textContent = watchInitials(entry.name || entry.handle);
+        span.style.background = watchColor(entry.handle || entry.name || '?');
+        return span;
+    }
+    // fallback=false makes unavatar 404 on a handle it cannot resolve rather than handing back
+    // a generic silhouette, which is what lets onerror swap in the monogram instead.
+    function watchAvatarUrl(handle) {
+        return 'https://unavatar.io/x/' + encodeURIComponent(handle) + '?fallback=false';
+    }
+    function makeWatchAvatar(entry, cls) {
+        const img = document.createElement('img');
+        img.className = cls || 'mon-avatar';
+        img.alt = '';
+        img.loading = 'lazy';
+        img.onerror = () => img.replaceWith(makeWatchMonogram(entry, cls));
+        img.src = entry.icon || watchAvatarUrl(entry.handle);
+        return img;
+    }
+
+    // What the Value sort ranks by. Unlinked entries have no figure and sink to the bottom.
+    function watchEntryValue(entry) {
+        if (!entry.link) return null;
+        if (entry.link.type === 'token') {
+            const t = portfolio.find(p => p.id === entry.link.ref);
+            return t ? (t.value || 0) : null;
+        }
+        if (entry.link.type === 'nft') {
+            return nftGallery.indexOf(entry.link.ref) === -1 ? null : (nftValues[entry.link.ref] || 0);
+        }
+        return null;
+    }
+    function watchLinkLabel(entry) {
+        if (!entry.link) return '';
+        if (entry.link.type === 'token') {
+            const t = portfolio.find(p => p.id === entry.link.ref);
+            return t ? t.symbol : '';
+        }
+        const url = entry.link.ref;
+        if (nftGallery.indexOf(url) === -1) return '';
+        return (nftMeta[url] && nftMeta[url].collection) || 'NFT';
+    }
+
+    function sortedWatchlist() {
+        const list = watchlist.slice();
+        const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        if (watchSort === 'alpha') return list.sort(byName);
+        if (watchSort === 'tier') return list.sort((a, b) => (b.tier - a.tier) || byName(a, b));
+        return list.sort((a, b) => {
+            const av = watchEntryValue(a), bv = watchEntryValue(b);
+            if (av === null && bv === null) return byName(a, b);
+            if (av === null) return 1;
+            if (bv === null) return -1;
+            return (bv - av) || byName(a, b);
+        });
+    }
+
+    function setWatchSort(mode) {
+        watchSort = mode;
+        saveWatchlist();
+        renderWatchlist();
+    }
+
+    const WATCH_TIER_LABEL = { 1: 'Watching', 2: 'Small', 3: 'Medium', 4: 'High', 5: 'Core' };
+
+    function renderWatchlist() {
+        const list = document.getElementById('watchList');
+        if (!list) return;
+        document.querySelectorAll('.mon-sort-btn').forEach(b =>
+            b.classList.toggle('active', b.dataset.monSort === watchSort));
+
+        list.innerHTML = '';
+        if (!watchlist.length) {
+            list.innerHTML = '<div class="mon-empty">No projects yet.<br>Add the teams whose X account you actually check.</div>';
+            return;
+        }
+        sortedWatchlist().forEach(entry => {
+            const row = document.createElement('div');
+            row.className = 'mon-item';
+            row.appendChild(makeWatchAvatar(entry));
+
+            const body = document.createElement('div');
+            body.className = 'mon-body';
+            const a = document.createElement('a');
+            a.className = 'mon-name';
+            a.href = entry.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+            a.textContent = entry.name || entry.handle;
+            body.appendChild(a);
+
+            const sub = document.createElement('div');
+            sub.className = 'mon-sub';
+            sub.innerHTML = '<span class="mon-handle">@' + escapeHtml(entry.handle) + '</span>';
+            const val = watchEntryValue(entry);
+            if (val !== null) {
+                sub.innerHTML += '<span class="mon-hold">' + escapeHtml(watchLinkLabel(entry)) + ' ' + formatUSDWhole(val) + '</span>';
+            }
+            body.appendChild(sub);
+            row.appendChild(body);
+
+            const tier = document.createElement('span');
+            tier.className = 'mon-tier t' + entry.tier;
+            tier.textContent = WATCH_TIER_LABEL[entry.tier] || entry.tier;
+            row.appendChild(tier);
+
+            const actions = document.createElement('div');
+            actions.className = 'mon-actions';
+            const edit = document.createElement('button');
+            edit.className = 'mon-act'; edit.textContent = '✏️'; edit.title = 'Edit';
+            edit.onclick = () => openWatchModal(entry.id);
+            const del = document.createElement('button');
+            del.className = 'mon-act danger'; del.textContent = '🗑️'; del.title = 'Remove';
+            del.onclick = () => deleteWatchEntry(entry.id);
+            actions.appendChild(edit); actions.appendChild(del);
+            row.appendChild(actions);
+
+            list.appendChild(row);
+        });
+    }
+
+    // --- add / edit -----------------------------------------------------------
+    function openWatchModal(id) {
+        watchEditId = id || null;
+        const entry = id ? watchlist.find(e => e.id === id) : null;
+        watchIconDraft = entry ? (entry.icon || null) : null;
+
+        document.getElementById('watchModalTitle').textContent = entry ? '📡 Edit Project' : '📡 Add Project';
+        document.getElementById('watchUrlInput').value = entry ? entry.url : '';
+        document.getElementById('watchNameInput').value = entry ? entry.name : '';
+        document.getElementById('watchIconFile').value = '';
+        setWatchTier(entry ? entry.tier : 3);
+        buildWatchLinkOptions(entry && entry.link ? entry.link : null);
+        renderWatchIconPreview();
+        showModal('watchModal');
+        if (!entry) setTimeout(() => document.getElementById('watchUrlInput').focus(), 50);
+    }
+
+    function setWatchTier(t) {
+        document.querySelectorAll('#watchTierRow .mon-tier-opt').forEach(b =>
+            b.classList.toggle('sel', Number(b.dataset.tier) === t));
+    }
+    function currentWatchTier() {
+        const sel = document.querySelector('#watchTierRow .mon-tier-opt.sel');
+        return sel ? Number(sel.dataset.tier) : 3;
+    }
+
+    // Holdings are listed by the same keys the rest of the app uses — token id, NFT image URL
+    // — so renaming a token or repricing an NFT never breaks the link.
+    function buildWatchLinkOptions(link) {
+        const sel = document.getElementById('watchLinkSelect');
+        sel.innerHTML = '<option value="">— none —</option>';
+        portfolio.slice()
+            .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''))
+            .forEach(t => {
+                const o = document.createElement('option');
+                o.value = 'token:' + t.id;
+                o.textContent = t.symbol + ' — ' + (t.name || t.symbol);
+                sel.appendChild(o);
+            });
+        nftGallery.forEach(url => {
+            const o = document.createElement('option');
+            o.value = 'nft:' + url;
+            const meta = nftMeta[url];
+            o.textContent = '🖼️ ' + ((meta && meta.collection) || url.split('/').pop().slice(0, 40));
+            sel.appendChild(o);
+        });
+        sel.value = link ? link.type + ':' + link.ref : '';
+    }
+
+    function onWatchUrlInput() {
+        const nameEl = document.getElementById('watchNameInput');
+        const handle = parseXHandle(document.getElementById('watchUrlInput').value);
+        // Only fill a name you have not written yourself.
+        if (handle && !nameEl.value.trim()) nameEl.value = handle;
+        renderWatchIconPreview();
+    }
+
+    function renderWatchIconPreview() {
+        const wrap = document.getElementById('watchIconPreview');
+        const hint = document.getElementById('watchIconHint');
+        const handle = parseXHandle(document.getElementById('watchUrlInput').value);
+        const name = document.getElementById('watchNameInput').value.trim();
+        wrap.innerHTML = '';
+        if (!handle && !watchIconDraft) {
+            wrap.appendChild(makeWatchMonogram({ name: name || '?', handle: name || '?' }, 'mon-icon-preview'));
+            hint.textContent = 'Paste an X link to pull their picture.';
+            return;
+        }
+        wrap.appendChild(makeWatchAvatar({ handle: handle, name: name || handle, icon: watchIconDraft }, 'mon-icon-preview'));
+        hint.textContent = watchIconDraft ? 'Using your uploaded picture.' : 'Pulled from X — upload your own if it looks wrong.';
+    }
+
+    function clearWatchIcon() {
+        watchIconDraft = null;
+        document.getElementById('watchIconFile').value = '';
+        renderWatchIconPreview();
+    }
+
+    function onWatchIconFile(input) {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        if (!/^image\//.test(file.type)) { toast('Pick an image file', 'warning'); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                // Square-crop and shrink before storing: these sit in localStorage beside the
+                // portfolio, and a full-size photo would eat the quota they share.
+                const S = 96;
+                const cv = document.createElement('canvas');
+                cv.width = S; cv.height = S;
+                const side = Math.min(img.width, img.height);
+                cv.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, S, S);
+                watchIconDraft = cv.toDataURL('image/png');
+                renderWatchIconPreview();
+            };
+            img.onerror = () => toast('Could not read that image', 'error');
+            img.src = reader.result;
+        };
+        reader.onerror = () => toast('Could not read that file', 'error');
+        reader.readAsDataURL(file);
+    }
+
+    function saveWatchEntry() {
+        const handle = parseXHandle(document.getElementById('watchUrlInput').value);
+        if (!handle) { toast('Paste an X link or @handle', 'warning'); return; }
+
+        const dupe = watchlist.find(e => e.handle.toLowerCase() === handle.toLowerCase() && e.id !== watchEditId);
+        if (dupe) { toast('@' + handle + ' is already on the list', 'warning'); return; }
+
+        const name = document.getElementById('watchNameInput').value.trim() || handle;
+        const linkVal = document.getElementById('watchLinkSelect').value;
+        const sep = linkVal.indexOf(':');
+        const fields = {
+            handle: handle,
+            url: 'https://x.com/' + handle,
+            name: name,
+            tier: currentWatchTier(),
+            link: sep === -1 ? null : { type: linkVal.slice(0, sep), ref: linkVal.slice(sep + 1) },
+            icon: watchIconDraft || null
+        };
+
+        if (watchEditId) {
+            const entry = watchlist.find(e => e.id === watchEditId);
+            if (entry) Object.assign(entry, fields);
+        } else {
+            watchlist.push(Object.assign({ id: 'w' + Date.now() + Math.random().toString(36).slice(2, 7), added: Date.now() }, fields));
+        }
+        saveWatchlist();
+        renderWatchlist();
+        closeModal('watchModal');
+        toast(watchEditId ? 'Updated ' + name : 'Now watching ' + name, 'success');
+        watchEditId = null;
+    }
+
+    function deleteWatchEntry(id) {
+        const entry = watchlist.find(e => e.id === id);
+        if (!entry || !confirm('Remove ' + (entry.name || entry.handle) + ' from the watchlist?')) return;
+        watchlist = watchlist.filter(e => e.id !== id);
+        saveWatchlist();
+        renderWatchlist();
+        toast('Removed', 'info');
     }
 
     // ============================================================
