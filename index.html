@@ -95,6 +95,8 @@
         }
         /* Dropdown options: native popup colors don't inherit from select — force dark theme */
         select option { background: #1a1a1a; color: #fff; }
+        /* Group headings need it too, or they keep the browser's light default. */
+        select optgroup { background: #1a1a1a; color: #8a8a99; }
         input:focus, textarea:focus, select:focus { outline: none; border-color: #00d4ff; box-shadow: 0 0 20px rgba(0,212,255,0.3); }
         input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .token-input { min-width: 200px; }
@@ -8664,26 +8666,63 @@ SOL,100</pre></div>
         return sel ? Number(sel.dataset.tier) : 3;
     }
 
+    // A scanned NFT's own name: the collection plus its token number, since a dozen pieces
+    // from one collection would otherwise be a dozen identical lines. Hand-added NFTs have no
+    // on-chain identity to read, so they fall back to the image filename.
+    function watchNftOptionLabel(url) {
+        const meta = nftMeta[url];
+        if (meta && meta.collection) return meta.collection + (meta.tokenId ? ' #' + meta.tokenId : '');
+        return decodeURIComponent(url.split('/').pop().split('?')[0]).slice(0, 44);
+    }
+
     // Holdings are listed by the same keys the rest of the app uses — token id, NFT image URL
-    // — so renaming a token or repricing an NFT never breaks the link.
+    // — so renaming a token or repricing an NFT never breaks the link. Grouped by kind and
+    // alphabetical within each: the gallery's own order is a slideshow running order, which
+    // reads as random when you are hunting for one piece by name.
     function buildWatchLinkOptions(link) {
         const sel = document.getElementById('watchLinkSelect');
         sel.innerHTML = '<option value="">— none —</option>';
-        portfolio.slice()
-            .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''))
-            .forEach(t => {
+        // "#" sorts numerically so Ape #9 comes before Ape #10, not after it.
+        const byLabel = (a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true });
+
+        [
+            { type: 'stock', title: '📈 Stocks' },
+            { type: 'crypto', title: '🪙 Tokens' },
+            { type: 'metal',  title: '🥇 Metals' },
+            { type: 'cash',   title: '💵 Cash' }
+        ].forEach(group => {
+            const rows = portfolio
+                // Tokens added before asset types existed simply have no assetType.
+                .filter(t => (t.assetType || 'crypto') === group.type)
+                .map(t => ({ value: 'token:' + t.id, label: (t.symbol || '') + ' — ' + (t.name || t.symbol || '') }))
+                .sort(byLabel);
+            if (!rows.length) return;
+            const og = document.createElement('optgroup');
+            og.label = group.title;
+            rows.forEach(r => {
                 const o = document.createElement('option');
-                o.value = 'token:' + t.id;
-                o.textContent = t.symbol + ' — ' + (t.name || t.symbol);
-                sel.appendChild(o);
+                o.value = r.value; o.textContent = r.label;
+                og.appendChild(o);
             });
-        nftGallery.forEach(url => {
-            const o = document.createElement('option');
-            o.value = 'nft:' + url;
-            const meta = nftMeta[url];
-            o.textContent = '🖼️ ' + ((meta && meta.collection) || url.split('/').pop().slice(0, 40));
-            sel.appendChild(o);
+            sel.appendChild(og);
         });
+
+        // slice() because nftGallery's order is the saved slideshow order — sorting the real
+        // array here would quietly reorder the gallery, screensaver and collage.
+        const nfts = nftGallery.slice()
+            .map(url => ({ value: 'nft:' + url, label: watchNftOptionLabel(url) }))
+            .sort(byLabel);
+        if (nfts.length) {
+            const og = document.createElement('optgroup');
+            og.label = '🖼️ NFTs';
+            nfts.forEach(r => {
+                const o = document.createElement('option');
+                o.value = r.value; o.textContent = r.label;
+                og.appendChild(o);
+            });
+            sel.appendChild(og);
+        }
+
         sel.value = link ? link.type + ':' + link.ref : '';
     }
 
