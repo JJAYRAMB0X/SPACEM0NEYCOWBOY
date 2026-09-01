@@ -1316,6 +1316,22 @@
                 </div>
             </div>
 
+            <!-- News Feed Widget -->
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('newsFeed')">
+                    <div class="section-title"><span>📰</span><span>Crypto News</span></div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="nft-btn" onclick="event.stopPropagation(); expandNews()" title="Open Fullscreen Feed" style="padding:4px 8px; font-size:0.8rem;">⛶ Fullscreen</button>
+                        <div class="section-toggle collapsed" id="newsFeedToggle">▼</div>
+                    </div>
+                </div>
+                <div class="section-body collapsed" id="newsFeedBody">
+                    <div id="newsLoading" onclick="loadNews()" title="Load headlines now" style="text-align:center; padding:16px; color:#555; font-size:0.85rem; cursor:pointer;">📰 Click to load headlines</div>
+                    <div id="newsList" class="news-list" style="display:none"></div>
+                    <button class="btn btn-primary btn-full" id="loadMoreBtn" onclick="loadNews()" style="margin-top:8px; display:none">📰 Load More</button>
+                </div>
+            </div>
+
             <!-- Add Token -->
             <div class="glass-card input-section">
                 <div class="section-header" onclick="toggleSection('addToken')">
@@ -1373,22 +1389,6 @@
                         <button class="filter-toggle-btn" data-mode="or" onclick="setFilterMode('or')">OR</button>
                     </div>
                     <div id="statsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
-                </div>
-            </div>
-
-            <!-- News Feed Widget -->
-            <div class="glass-card">
-                <div class="section-header" onclick="toggleSection('newsFeed')">
-                    <div class="section-title"><span>📰</span><span>Crypto News</span></div>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <button class="nft-btn" onclick="event.stopPropagation(); expandNews()" title="Open Fullscreen Feed" style="padding:4px 8px; font-size:0.8rem;">⛶ Fullscreen</button>
-                        <div class="section-toggle collapsed" id="newsFeedToggle">▼</div>
-                    </div>
-                </div>
-                <div class="section-body collapsed" id="newsFeedBody">
-                    <div id="newsLoading" onclick="loadNews()" title="Load headlines now" style="text-align:center; padding:16px; color:#555; font-size:0.85rem; cursor:pointer;">📰 Click to load headlines</div>
-                    <div id="newsList" class="news-list" style="display:none"></div>
-                    <button class="btn btn-primary btn-full" id="loadMoreBtn" onclick="loadNews()" style="margin-top:8px; display:none">📰 Load More</button>
                 </div>
             </div>
 
