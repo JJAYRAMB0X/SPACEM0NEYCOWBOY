@@ -239,6 +239,9 @@
            donation popup. Clipping stays on while collapsing, or the content would not
            appear to slide away; toggleSection lifts it once the card is open. */
         .section-body.pop-safe.open { overflow: visible; }
+        /* Held for one frame while a remembered layout is restored: without it every folded
+           card animates itself shut on arrival, which reads as the page falling apart. */
+        .no-section-anim .section-body, .no-section-anim .section-toggle { transition: none !important; }
 
         /* ===== CATEGORY STATS ===== */
         .stat-bubble {
@@ -1226,6 +1229,19 @@
                 <div id="totalBreakdown" style="display:none; font-size:0.63rem; color:#555; margin-top:3px; letter-spacing:0.2px;"></div>
             </div>
 
+            <!-- Sort Controls -->
+            <div class="glass-card sort-controls" id="sortControls">
+                <div class="sort-controls-label">Sort By</div>
+                <div class="sort-buttons">
+                    <button class="sort-btn orbit-btn active" id="orbitBtn" onclick="activateOrbitMode()" title="Solar System View">🪐</button>
+                    <button class="sort-btn regroup-btn" id="regroupBtn" onclick="activateRegroupMode()" title="Grid View">⊞</button>
+                    <button class="sort-btn" data-sort="marketCap" onclick="toggleSort('marketCap')">Mkt Cap <span class="sort-arrow">↓</span></button>
+                    <button class="sort-btn" data-sort="value" onclick="toggleSort('value')">Holdings <span class="sort-arrow">↓</span></button>
+                    <button class="sort-btn" data-sort="whaleScore" onclick="toggleSort('whaleScore')">Whale <span class="sort-arrow">↓</span></button>
+                    <button class="sort-btn" data-sort="priceChange" onclick="toggleSort('priceChange')">24h Chg <span class="sort-arrow">↓</span></button>
+                </div>
+            </div>
+
             <!-- Monitoring the Situation Widget -->
             <div class="glass-card">
                 <div class="section-header" onclick="toggleSection('monitor')">
@@ -1275,19 +1291,6 @@
                     </div>
                     <div class="status-msg" id="statusMsg"></div>
                     <div style="font-size:0.7rem;color:#555;margin-top:4px;text-align:center">For Metals & Cash, use <strong style="color:#ff8c00">+ Manual</strong></div>
-                </div>
-            </div>
-
-            <!-- Sort Controls -->
-            <div class="glass-card sort-controls" id="sortControls">
-                <div class="sort-controls-label">Sort By</div>
-                <div class="sort-buttons">
-                    <button class="sort-btn orbit-btn active" id="orbitBtn" onclick="activateOrbitMode()" title="Solar System View">🪐</button>
-                    <button class="sort-btn regroup-btn" id="regroupBtn" onclick="activateRegroupMode()" title="Grid View">⊞</button>
-                    <button class="sort-btn" data-sort="marketCap" onclick="toggleSort('marketCap')">Mkt Cap <span class="sort-arrow">↓</span></button>
-                    <button class="sort-btn" data-sort="value" onclick="toggleSort('value')">Holdings <span class="sort-arrow">↓</span></button>
-                    <button class="sort-btn" data-sort="whaleScore" onclick="toggleSort('whaleScore')">Whale <span class="sort-arrow">↓</span></button>
-                    <button class="sort-btn" data-sort="priceChange" onclick="toggleSort('priceChange')">24h Chg <span class="sort-arrow">↓</span></button>
                 </div>
             </div>
 
@@ -1367,7 +1370,7 @@
                     </div>
                 </div>
                 <div class="section-body collapsed" id="newsFeedBody">
-                    <div id="newsLoading" style="text-align:center; padding:16px; color:#555; font-size:0.85rem;">📰 Click to expand or open to load headlines</div>
+                    <div id="newsLoading" onclick="loadNews()" title="Load headlines now" style="text-align:center; padding:16px; color:#555; font-size:0.85rem; cursor:pointer;">📰 Click to load headlines</div>
                     <div id="newsList" class="news-list" style="display:none"></div>
                     <button class="btn btn-primary btn-full" id="loadMoreBtn" onclick="loadNews()" style="margin-top:8px; display:none">📰 Load More</button>
                 </div>
@@ -3182,6 +3185,9 @@ SOL,100</pre></div>
 
         // Last, so the Value sort has the loaded portfolio to read holdings from.
         renderWatchlist();
+
+        // Put the column back the way it was left.
+        loadSectionStates();
     }
 
     function startAutoUpdate() {
@@ -8182,24 +8188,63 @@ SOL,100</pre></div>
     // ============================================================
     // SECTION COLLAPSE
     // ============================================================
-    function toggleSection(id) {
+    // Which cards you keep folded away is a preference, so it outlives the page. Only the
+    // shape of the column is remembered — never whether a section had fetched anything yet.
+    function saveSectionStates() {
+        const state = {};
+        document.querySelectorAll('.section-body[id]').forEach(b => {
+            state[b.id.replace(/Body$/, '')] = b.classList.contains('collapsed');
+        });
+        try { localStorage.setItem(lsKey('sections'), JSON.stringify(state)); } catch (e) {}
+    }
+
+    function loadSectionStates() {
+        let state;
+        try { state = JSON.parse(localStorage.getItem(lsKey('sections'))); } catch (e) { return; }
+        if (!state || typeof state !== 'object') return;
+        document.body.classList.add('no-section-anim');
+        Object.keys(state).forEach(id => {
+            // A card that has since been renamed or removed leaves a stale key behind; setting
+            // it is a no-op rather than an error, and the next save drops it.
+            if (typeof state[id] === 'boolean') setSectionCollapsed(id, state[id], true);
+        });
+        // Two frames: one for the browser to apply the collapsed state with transitions off,
+        // the next to hand them back for the clicks that follow.
+        requestAnimationFrame(() => requestAnimationFrame(() =>
+            document.body.classList.remove('no-section-anim')));
+    }
+
+    // instant skips the slide, for restoring a remembered layout on load: animating every
+    // card shut on arrival would look like the page was breaking.
+    function setSectionCollapsed(id, collapsed, instant) {
         const body = document.getElementById(id + 'Body');
         const toggle = document.getElementById(id + 'Toggle');
-        const collapsed = body.classList.toggle('collapsed');
+        if (!body || !toggle) return;
+        body.classList.toggle('collapsed', collapsed);
         toggle.classList.toggle('collapsed', collapsed);
         // Content allowed to overhang its card may only escape once the card has finished
         // opening — mid-slide it still has to be clipped, or it hangs in mid-air.
         if (body.classList.contains('pop-safe')) {
             if (collapsed) body.classList.remove('open');
+            else if (instant) body.classList.add('open');
             else setTimeout(() => { if (!body.classList.contains('collapsed')) body.classList.add('open'); }, 320);
         }
-        // Auto-load news on first expand
-        if (id === 'newsFeed' && !collapsed && allNews.length === 0) loadNews();
         // Categories sort button is only meaningful when the bubbles are visible
         if (id === 'categories') {
             const sortBtn = document.getElementById('catSortBtn');
             if (sortBtn) sortBtn.style.display = collapsed ? 'none' : '';
         }
+    }
+
+    function toggleSection(id) {
+        const body = document.getElementById(id + 'Body');
+        if (!body) return;
+        const collapsed = !body.classList.contains('collapsed');
+        setSectionCollapsed(id, collapsed);
+        // Auto-load news on first expand. Deliberately not done when restoring a remembered
+        // layout — arriving on the page should not fire off three feed requests.
+        if (id === 'newsFeed' && !collapsed && allNews.length === 0) loadNews();
+        saveSectionStates();
     }
 
     // ============================================================
