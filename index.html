@@ -1047,6 +1047,13 @@
         .auto-update-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 4px 10px; color: #666; font-size: 0.65rem; cursor: pointer; transition: all 0.3s; white-space: nowrap; }
         .auto-update-btn:hover { background: rgba(0,212,255,0.1); border-color: rgba(0,212,255,0.3); color: #00d4ff; }
         .auto-update-btn.active { background: rgba(0,212,255,0.1); border-color: rgba(0,212,255,0.4); color: #00d4ff; }
+        /* The one thing in that row that does something rather than switching something —
+           green so it does not read as a fourth toggle. */
+        .auto-update-btn.act-run { background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.5); color: #10b981; }
+        .auto-update-btn.act-run:hover { background: rgba(16,185,129,0.22); border-color: #10b981; color: #34d399; }
+        .auto-update-btn:disabled { opacity: 0.75; cursor: default; }
+        /* The full-size spinner was built for a full-width button and would burst this pill. */
+        .auto-update-btn .spinner { width: 10px; height: 10px; border-width: 2px; margin-right: 4px; vertical-align: -1px; }
         .ss-mode-toggle { display: flex; align-items: center; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; overflow: hidden; font-size: 0.65rem; }
         .ss-mode-opt { padding: 4px 8px; cursor: pointer; color: #555; transition: all 0.3s; user-select: none; }
         .ss-mode-opt:hover { color: #999; }
@@ -1211,8 +1218,9 @@
                         <span class="ss-mode-opt" id="ssModeWindowed" onclick="setSSMode('windowed')">Window</span>
                     </div>
                     <button class="auto-update-btn" id="autoUpdateBtn" onclick="toggleAutoUpdate()" title="Auto-update prices on load and every 5 minutes">Auto Update All Prices: OFF</button>
-                    <button class="auto-update-btn" id="customAutoUpdateBtn" onclick="toggleCustomAutoUpdate()" title="Pause/resume all per-token auto-update timers without losing their settings">Auto Update Custom Prices: ON</button>
+                    <button class="auto-update-btn" id="customAutoUpdateBtn" onclick="toggleCustomAutoUpdate()" title="Pause/resume all per-token price check timers without losing their settings">Price Check Timers: ON</button>
                     <button class="auto-update-btn" id="hideValuesBtn" onclick="toggleHideValues()" title="Hide all portfolio values, holdings, totals and market cap">👁 Values: ON</button>
+                    <button class="auto-update-btn act-run" id="updateAllBtn" onclick="updateAllPrices()" title="Fetch fresh prices for every holding right now">🔄 Update All Prices</button>
                 </div>
             </div>
 
@@ -1249,7 +1257,6 @@
                     <div class="section-toggle" id="actionsToggle">▼</div>
                 </div>
                 <div class="section-body pop-safe actions-grid open" id="actionsBody">
-                    <button class="btn btn-success btn-full" onclick="updateAllPrices()">🔄 Update All Prices</button>
                     <div style="display:flex;gap:6px">
                         <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
                         <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
@@ -3230,7 +3237,7 @@ SOL,100</pre></div>
     function syncCustomAutoUpdateBtn() {
         const btn = document.getElementById('customAutoUpdateBtn');
         if (!btn) return;
-        btn.textContent = customAutoUpdatePaused ? 'Auto Update Custom Prices: OFF' : 'Auto Update Custom Prices: ON';
+        btn.textContent = customAutoUpdatePaused ? 'Price Check Timers: OFF' : 'Price Check Timers: ON';
         btn.classList.toggle('active', !customAutoUpdatePaused);
         document.body.classList.toggle('custom-auto-paused', customAutoUpdatePaused);
     }
@@ -6307,7 +6314,10 @@ SOL,100</pre></div>
     async function updateAllPrices(isAutoRefresh = false) {
         if (isUpdatingPrices) return; // prevent double-runs
         isUpdatingPrices = true;
-        const btn = document.querySelector('.btn-success');
+        // By id, not by its green styling as before: that selector would have picked up any
+        // other success-coloured button added later. A plain object stands in if it is ever
+        // missing, so the status writes below are no-ops rather than a thrown update.
+        const btn = document.getElementById('updateAllBtn') || {};
         btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Updating (DexScreener)...';
         let dexUpdated = 0, geckoUpdated = 0, stockUpdated = 0, fhStockUpdated = 0, tdStockUpdated = 0, metalUpdated = 0;
         const dexFailed = []; // tokens that failed DexScreener — candidates for CoinGecko fallback
