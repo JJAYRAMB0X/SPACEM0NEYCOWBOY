@@ -1250,44 +1250,6 @@
                 </div>
             </div>
 
-            <!-- Actions -->
-            <div class="glass-card">
-                <div class="section-header" onclick="toggleSection('actions')">
-                    <div class="section-title"><span>⚙️</span><span>Operations</span></div>
-                    <div class="section-toggle" id="actionsToggle">▼</div>
-                </div>
-                <div class="section-body pop-safe actions-grid open" id="actionsBody">
-                    <div style="display:flex;gap:6px">
-                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
-                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
-                    </div>
-                    <input type="file" id="csvInput" class="file-input" accept=".csv">
-                    <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
-                    <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
-                    <div class="branding" id="brandingEl">
-                        <span class="branding-inner">⚔️ Powered by JohnJay</span>
-                        <div class="donation-popup" id="donationPopup">
-                            <div class="dp-title">✨ Support the Dev ✨</div>
-                            <div class="dp-chain">
-                                <div class="dp-chain-label">⬡ EVM / ETH / BSC</div>
-                                <div class="dp-addr-row">
-                                    <span class="dp-addr" title="0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9">0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9</span>
-                                    <button class="dp-copy" onclick="dpCopy(this,'0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9')">Copy</button>
-                                </div>
-                            </div>
-                            <div class="dp-chain">
-                                <div class="dp-chain-label">◎ Solana</div>
-                                <div class="dp-addr-row">
-                                    <span class="dp-addr" title="CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL">CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL</span>
-                                    <button class="dp-copy" onclick="dpCopy(this,'CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL')">Copy</button>
-                                </div>
-                            </div>
-                            <div class="dp-footer"><span class="dp-hearts">💜</span> Every bit helps, thank you! <span class="dp-hearts">💜</span></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Monitoring the Situation Widget -->
             <div class="glass-card">
                 <div class="section-header" onclick="toggleSection('monitor')">
@@ -1441,6 +1403,44 @@
                     <button class="btn btn-primary btn-full" onclick="doResearch()">🤖 Research</button>
                     <div id="searchResults" class="search-results" style="display:none"></div>
                     <div style="font-size:0.7rem; color:#555; text-align:center; margin-top:6px;">Opens Google search + quick research links</div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="glass-card">
+                <div class="section-header" onclick="toggleSection('actions')">
+                    <div class="section-title"><span>⚙️</span><span>Operations</span></div>
+                    <div class="section-toggle" id="actionsToggle">▼</div>
+                </div>
+                <div class="section-body pop-safe actions-grid open" id="actionsBody">
+                    <div style="display:flex;gap:6px">
+                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="showModal('importHelpModal')">📥 Import</button>
+                        <button class="btn btn-secondary" style="flex:1;min-width:0" onclick="openWalletManager()">🔑 Wallets</button>
+                    </div>
+                    <input type="file" id="csvInput" class="file-input" accept=".csv">
+                    <button class="btn btn-secondary btn-full" onclick="exportCSV()">📤 Export Portfolio</button>
+                    <button class="btn btn-danger btn-full" onclick="clearPortfolio()">🗑️ Clear Portfolio</button>
+                    <div class="branding" id="brandingEl">
+                        <span class="branding-inner">⚔️ Powered by JohnJay</span>
+                        <div class="donation-popup" id="donationPopup">
+                            <div class="dp-title">✨ Support the Dev ✨</div>
+                            <div class="dp-chain">
+                                <div class="dp-chain-label">⬡ EVM / ETH / BSC</div>
+                                <div class="dp-addr-row">
+                                    <span class="dp-addr" title="0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9">0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9</span>
+                                    <button class="dp-copy" onclick="dpCopy(this,'0xb782b9dBaEc4758036B7cD6bA6C25b35ACDf5ae9')">Copy</button>
+                                </div>
+                            </div>
+                            <div class="dp-chain">
+                                <div class="dp-chain-label">◎ Solana</div>
+                                <div class="dp-addr-row">
+                                    <span class="dp-addr" title="CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL">CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL</span>
+                                    <button class="dp-copy" onclick="dpCopy(this,'CBeqeMa6tzKVSSRNZV5pk9hTqiUnzM748iV9gURGy7HL')">Copy</button>
+                                </div>
+                            </div>
+                            <div class="dp-footer"><span class="dp-hearts">💜</span> Every bit helps, thank you! <span class="dp-hearts">💜</span></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
