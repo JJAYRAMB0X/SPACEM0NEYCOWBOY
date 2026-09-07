@@ -3577,6 +3577,10 @@ SOL,100</pre></div>
         window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { drawBgChart(); if (screensaverActive) { drawBgChart(document.getElementById('ssBgChart'), document.getElementById('ssMain')); renderScreensaverPlanets(); } else { renderNetwork(); } }, 250); });
     }
 
+    // The width the divider was last dragged to, held across a collapse/expand round trip
+    // by togglePanel — which has to clear the inline width to let .collapsed take effect.
+    let savedPanelWidth = '';
+
     function setupResizer() {
         const div = document.getElementById('resizeDivider');
         const lc = document.getElementById('leftColumn');
@@ -8265,12 +8269,22 @@ SOL,100</pre></div>
     function togglePanel() {
         const lc = document.getElementById('leftColumn');
         const rd = document.getElementById('resizeDivider');
-        lc.classList.toggle('collapsed'); rd.classList.toggle('hidden');
-        const collapsed = lc.classList.contains('collapsed');
+        const collapsed = !lc.classList.contains('collapsed');
+        // Dragging the divider leaves an inline width/min-width on the column, and an inline
+        // style outranks the .collapsed class rule — so after a resize, Collapse would flip
+        // the label and the arrow while the column kept its width. Park the dragged width
+        // and hand it back on expand, so a custom split survives the round trip.
+        if (collapsed) {
+            if (lc.style.width) savedPanelWidth = lc.style.width;
+            lc.style.width = ''; lc.style.minWidth = '';
+        } else if (savedPanelWidth) {
+            lc.style.width = savedPanelWidth; lc.style.minWidth = savedPanelWidth;
+        }
+        lc.classList.toggle('collapsed', collapsed); rd.classList.toggle('hidden', collapsed);
         document.getElementById('collapseIcon').textContent = collapsed ? '▶' : '◀';
         document.getElementById('collapseLabel').textContent = collapsed ? 'Expand' : 'Collapse';
         if (collapsed) syncCollapseSortButtons();
-        setTimeout(() => { renderNetwork(); drawBgChart(); }, 550);
+        setTimeout(() => { renderNetwork(); drawBgChart(); positionBottomInfo(); }, 550);
     }
 
     // ============================================================
