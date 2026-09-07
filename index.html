@@ -121,6 +121,8 @@
         .btn-success { background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.1)); border: 1px solid #10b981; color: #10b981; }
         .btn-success:hover { box-shadow: 0 5px 15px rgba(16,185,129,0.3); }
         .btn-orange { background: rgba(255,140,0,0.1); border: 1px solid rgba(255,140,0,0.3); color: #ff8c00; font-size: 0.8rem; padding: 8px 12px; }
+        /* Same purple as the Edit Info "Pull Balance" button, so the two read as the same feature. */
+        .btn-scan { background: rgba(155,93,229,0.12); border: 1px solid rgba(155,93,229,0.45); color: #c5a3ff; font-size: 0.8rem; padding: 8px 12px; }
         .btn-full { width: 100%; }
 
         /* ===== AUTOCOMPLETE ===== */
@@ -1356,10 +1358,12 @@
                             <label class="input-label">&nbsp;</label>
                             <div style="display:flex; gap:6px; flex-wrap:wrap;">
                                 <button class="btn btn-primary" id="addTokenBtn">Add</button>
+                                <button class="btn btn-scan" id="scanAmountBtn" onclick="scanAmountForSelected()" title="Pull the on-chain balance of the selected token from your saved wallets">📥 Scan</button>
                                 <button class="btn btn-orange" onclick="showModal('manualChooserModal')" title="Add token or stock manually">+ Manual</button>
                             </div>
                         </div>
                     </div>
+                    <div id="scanAmountStatus" style="font-size:0.68rem;color:#888;margin-top:6px;min-height:14px;text-align:center"></div>
                     <div class="status-msg" id="statusMsg"></div>
                     <div style="font-size:0.7rem;color:#555;margin-top:4px;text-align:center">For Metals & Cash, use <strong style="color:#ff8c00">+ Manual</strong></div>
                 </div>
@@ -3792,6 +3796,7 @@ SOL,100</pre></div>
                 _coinGecko: true,
                 _coinGeckoId: coin.id,
             };
+            clearScanAmountStatus();
             document.getElementById('tokenInput').value = coin.name + ' (' + coin.symbol.toUpperCase() + ')';
             dd.style.display = 'none';
             document.getElementById('amountInput').focus();
@@ -3827,6 +3832,7 @@ SOL,100</pre></div>
                 _exchange: data.exchange || stock.exchange,
                 priceSource: data.priceSource,
             };
+            clearScanAmountStatus();
             document.getElementById('tokenInput').value = stock.name + ' (' + stock.symbol + ')';
             dd.style.display = 'none';
             document.getElementById('amountInput').focus();
@@ -3870,6 +3876,7 @@ SOL,100</pre></div>
 
     function selectToken(t) {
         selectedToken = t;
+        clearScanAmountStatus();
         document.getElementById('tokenInput').value = t.name + ' (' + t.symbol.toUpperCase() + ')';
         document.getElementById('acDropdown').style.display = 'none';
         document.getElementById('amountInput').focus();
@@ -3900,6 +3907,7 @@ SOL,100</pre></div>
         };
         document.getElementById('tokenInput').value = '';
         document.getElementById('amountInput').value = '';
+        clearScanAmountStatus();
         selectedToken = null;
         isEditingCats = false;
         showCategoryModal(pendingToken);
@@ -5601,6 +5609,76 @@ SOL,100</pre></div>
         } catch (e) {
             console.error('Pull balance error:', e);
             if (status) { status.textContent = 'Failed: ' + (e.message || 'unknown'); status.style.color = '#ef4444'; }
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origHTML;
+            btn.style.opacity = '1';
+        }
+    }
+
+    // Same Pull Balance, but for a token picked in the search bar that is not in the
+    // portfolio yet — it fills the Amount box so "Add" never needs a hand-typed number.
+    function setScanAmountStatus(html, color) {
+        const el = document.getElementById('scanAmountStatus');
+        if (!el) return;
+        el.innerHTML = html || '';
+        el.style.color = color || '#888';
+    }
+
+    function clearScanAmountStatus() { setScanAmountStatus('', '#888'); }
+
+    async function scanAmountForSelected() {
+        if (!selectedToken) { setScanAmountStatus('Select a token from the search results first', '#ef4444'); return; }
+        if (selectedToken._isStock) { setScanAmountStatus('Scan only works for crypto — enter share count by hand', '#f59e0b'); return; }
+
+        // pullBalanceForToken reads the same fields a portfolio entry carries, so hand it a
+        // portfolio-shaped copy. decimals it discovers land on selectedToken and survive
+        // until the token is added.
+        const probe = {
+            symbol: selectedToken.symbol,
+            name: selectedToken.name,
+            address: selectedToken.address,
+            chainId: selectedToken.chainId,
+            assetType: 'crypto',
+            isCustom: !!selectedToken._coinGecko,
+            decimals: selectedToken.decimals,
+        };
+
+        const btn = document.getElementById('scanAmountBtn');
+        const origHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Scanning…';
+        btn.style.opacity = '0.6';
+        setScanAmountStatus('Checking saved wallets for ' + escapeHtml(selectedToken.symbol) + '…', '#888');
+
+        try {
+            const result = await pullBalanceForToken(probe);
+            if (typeof probe.decimals === 'number') selectedToken.decimals = probe.decimals;
+
+            if (result.error) { setScanAmountStatus(escapeHtml(result.error), '#ef4444'); return; }
+
+            const errored = result.breakdown.filter(b => b.error);
+            const nonZero = result.breakdown.filter(b => b.amount > 0);
+            if (nonZero.length === 0) {
+                if (errored.length === result.breakdown.length && errored.length > 0) {
+                    setScanAmountStatus('RPC calls failed: ' + escapeHtml(errored[0].error || 'unknown') + ' — open console for details', '#ef4444');
+                } else {
+                    setScanAmountStatus('0 balance found for ' + escapeHtml(selectedToken.symbol) + ' in your saved wallets', '#f59e0b');
+                }
+                return;
+            }
+
+            // 2 decimals like Edit Info, except for dust — rounding a 0.004 balance to "0"
+            // would leave Add rejecting the amount it just filled in.
+            const amt = result.total;
+            document.getElementById('amountInput').value = amt >= 0.01
+                ? amt.toFixed(2).replace(/\.?0+$/, '')
+                : String(Number(amt.toPrecision(6)));
+            const parts = nonZero.map(b => escapeHtml(b.label) + ': ' + formatPulledAmount(b.amount));
+            setScanAmountStatus(parts.join(' &nbsp;|&nbsp; ') + ' &nbsp;|&nbsp; <strong style="color:#10b981">Total: ' + formatPulledAmount(result.total) + '</strong>', '#aaa');
+        } catch (e) {
+            console.error('Scan amount error:', e);
+            setScanAmountStatus('Failed: ' + escapeHtml(e.message || 'unknown'), '#ef4444');
         } finally {
             btn.disabled = false;
             btn.innerHTML = origHTML;
